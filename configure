@@ -2665,6 +2665,10 @@ def_bswap='#define HAVE_BSWAP 0'
 def_ebx_available='#define HAVE_EBX_AVAILABLE 0'
 def_xmm_clobbers='#define HAVE_XMM_CLOBBERS 0'
 
+if x86_64 ; then
+inline_asm_check '"mov (%eax), %eax"' || die "Your binutils version is too old and not supported"
+fi
+
 if x86 ; then
 
 echocheck ".align is a power of two"
@@ -2756,7 +2760,7 @@ echores "$bswap"
 
 
 echocheck "xmm clobbers"
-inline_asm_check '"":::"%xxxmm0"' &&
+inline_asm_check '"":::"%xmm0"' &&
   def_xmm_clobbers='#define HAVE_XMM_CLOBBERS 1' &&
   xmm_clobbers=yes || xmm_clobbers=no
 echores "$xmm_clobbers"
@@ -5860,15 +5864,9 @@ echores "$_libdvdcss_internal"
 
 echocheck "cdparanoia"
 if test "$_cdparanoia" = auto ; then
-    cat > $TMPC <<EOF
-#include <cdda_interface.h>
-#include <cdda_paranoia.h>
-// This need a better test. How ?
-int main(void) { void *test = cdda_verbose_set; return test == (void *)1; }
-EOF
     _cdparanoia=no
     for _inc_tmp in "" "-I/usr/include/cdda" "-I/usr/local/include/cdda" ; do
-      cc_check $_inc_tmp -lcdda_interface -lcdda_paranoia &&
+      statement_check_broken cdda_interface.h cdda_paranoia.h 'paranoia_cachemodel_size(NULL, 0)' $_inc_tmp -lcdda_interface -lcdda_paranoia &&
         _cdparanoia=yes && extra_cflags="$extra_cflags $_inc_tmp" && break
     done
 fi
@@ -6104,8 +6102,8 @@ EOF
     cc_check $_inc_tmp $_ld_tmp && _fribidi=yes
     if $_pkg_config --exists fribidi > /dev/null 2>&1 &&
        test "$_fribidi" = no ; then
-        _inc_tmp="$($_pkg_config --cflags)"
-        _ld_tmp="$($_pkg_config --libs)"
+        _inc_tmp="$($_pkg_config --cflags fribidi)"
+        _ld_tmp="$($_pkg_config --libs fribidi)"
         cc_check $_inc_tmp $_ld_tmp && _fribidi=yes
     fi
 fi

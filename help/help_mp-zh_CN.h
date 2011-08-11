@@ -1,4 +1,4 @@
-// Synced with help_mp-en.h rev. 33866
+// Synced with help_mp-en.h rev. 33931
 //
 // Translated by JRaSH <jrash06@163.com>
 
@@ -542,7 +542,6 @@ static const char help_text[]=
 #define MSGTR_Preferences "首选项"
 #define MSGTR_AudioPreferences "音频驱动配置"
 #define MSGTR_NoMediaOpened "未打开媒体内容"
-#define MSGTR_VCDTrack "VCD 数据轨道 %d"
 #define MSGTR_NoChapter "无章节"
 #define MSGTR_Chapter "章节 %d"
 #define MSGTR_NoFileLoaded "未载入文件"
@@ -2028,7 +2027,6 @@ static const char help_text[]=
 #define MSGTR_TVI_DS_UnableGetDeviceName "tvi_dshow：无法获取设备 #%d 的名称\n"
 #define MSGTR_TVI_DS_UsingDevice "tvi_dshow：使用设备 #%d：%s\n"
 #define MSGTR_TVI_DS_DirectGetFreqFailed "tvi_dshow：无法直接获取频率值。将使用操作系统内置的频道表。\n"
-//following phrase will be printed near the selected audio/video input
 #define MSGTR_TVI_DS_UnableExtractFreqTable "tvi_dshow：无法从 kstvtune.ax 加载频率对照表\n"
 #define MSGTR_TVI_DS_WrongDeviceParam "tvi_dshow：设备参数错误：%s\n"
 #define MSGTR_TVI_DS_WrongDeviceIndex "tvi_dshow：设备索引错误：%d\n"
