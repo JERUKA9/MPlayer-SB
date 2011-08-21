@@ -220,16 +220,6 @@ void set_osd_subtitle(subtitle *subs) {
     vo_osd_changed(OSDTYPE_SUBTITLE);
 }
 
-//-------------------------- config stuff:
-
-m_config_t* mconfig;
-
-static int cfg_inc_verbose(m_option_t *conf){ ++verbose; return 0;}
-
-static int cfg_include(m_option_t *conf, const char *filename){
-	return m_config_parse_config_file(mconfig, filename);
-}
-
 static double seek_to_sec;
 static off_t seek_to_byte=0;
 
@@ -561,6 +551,8 @@ off_t muxer_f_size=0;
 
 double v_pts_corr=0;
 double v_timer_corr=0;
+double sub_offset=0;
+int did_seek=0;
 
 m_entry_t* filelist = NULL;
 char* filename=NULL;
@@ -1220,6 +1212,9 @@ if (edl_filename) {
 
 if (sh_audio && audio_delay != 0.) fixdelay(d_video, d_audio, mux_a, &frame_data, mux_v->codec==VCODEC_COPY);
 
+// Just assume a seek. Also works if time stamps do not start with 0
+did_seek = 1;
+
 while(!at_eof){
 
     int blit_frame=0;
@@ -1259,6 +1254,7 @@ goto_redo_edl:
             if (result == 2) { at_eof=1; break; } // EOF
             else if (result == 0) edl_seeking = 0; // no seeking
             else { // sucess
+                did_seek = 1;
                 edl_muted = 0;
                 if (last_pos >= sh_video->pts) {
                     // backwards seek detected!! Forget about this EDL skip altogether.
@@ -1466,8 +1462,17 @@ default:
                       ((vf_instance_t *)sh_video->vfilter)->control(sh_video->vfilter, VFCTRL_SKIP_NEXT_FRAME, 0) != CONTROL_TRUE);
     void *decoded_frame = decode_video(sh_video,frame_data.start,frame_data.in_size,
                                        drop_frame, MP_NOPTS_VALUE, NULL);
-    // NOTE: v_muxer_time is not really correct, but it allows -ass to work mostly
-    blit_frame = decoded_frame && filter_video(sh_video, decoded_frame, v_muxer_time);}
+    if (did_seek && sh_video->pts != MP_NOPTS_VALUE) {
+        did_seek = 0;
+        sub_offset = sh_video->pts;
+    }
+    // NOTE: this is not really correct, but it allows -ass to work mostly
+    // v_muxer_time was tried before, but it is completely off when -ss is used
+    // (see bug #1960).
+    // sh_video->pts causes flickering with subtitles and complaints from MPEG-4
+    // encoder due to not being monotonic.
+    // If you change this please note the reason here!
+    blit_frame = decoded_frame && filter_video(sh_video, decoded_frame, v_muxer_time + sub_offset);}
     v_muxer_time = adjusted_muxer_time(mux_v); // update after muxing
 
     if (sh_video->vf_initialized < 0) mencoder_exit(1, NULL);
