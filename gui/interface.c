@@ -402,6 +402,8 @@ int gui(int what, void *data)
 
         gui(GUI_SET_FILE, 0);
 
+        wsVisibleMouse(&guiApp.subWindow, wsHideMouseCursor);
+
         switch (guiInfo.StreamType) {
         case STREAMTYPE_PLAYLIST:
             break;
@@ -763,6 +765,8 @@ int gui(int what, void *data)
 
     case GUI_END_FILE:
 
+        uiEventHandling(evRedraw, 1);
+
         if (!uiGotoTheNext && guiInfo.Playing) {
             uiGotoTheNext = 1;
             break;
@@ -818,6 +822,7 @@ int gui(int what, void *data)
             wsSetBackgroundRGB(&guiApp.subWindow, guiApp.sub.R, guiApp.sub.G, guiApp.sub.B);
             wsClearWindow(guiApp.subWindow);
             wsPostRedisplay(&guiApp.subWindow);
+            wsVisibleMouse(&guiApp.subWindow, wsShowMouseCursor);
         }
 
         break;
