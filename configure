@@ -35,28 +35,28 @@
 #
 #############################################################################
 
-  if test -e ffmpeg/.svn ; then
+if test -e ffmpeg/.svn ; then
     echo "You have an outdated FFmpeg SVN checkout in ffmpeg/, please (re)move or replace it"
     exit 1
-  fi
+fi
 
-  if test -e ffmpeg/mp_auto_pull ; then
+if test -e ffmpeg/mp_auto_pull ; then
     if ! (cd ffmpeg && git pull --rebase --ff-only) ; then
-      echo "git pull failed, (re)move ffmpeg/mp_auto_pull to disable pulling"
-      exit 1
+        echo "git pull failed, (re)move ffmpeg/mp_auto_pull to disable pulling"
+        exit 1
     fi
-  fi
+fi
 
-  if ! test -e ffmpeg ; then
+if ! test -e ffmpeg ; then
     echo "No FFmpeg checkout, press enter to download one with git or CTRL+C to abort"
     read tmp
     if ! git clone --depth 1 git://git.videolan.org/ffmpeg.git ffmpeg ; then
-      rm -rf ffmpeg
-      echo "Failed to get a FFmpeg checkout"
-      exit 1
+        rm -rf ffmpeg
+        echo "Failed to get a FFmpeg checkout"
+        exit 1
     fi
     touch ffmpeg/mp_auto_pull
-  fi
+fi
 
 # Prevent locale nonsense from breaking basic text processing utilities
 export LC_ALL=C
@@ -90,8 +90,12 @@ cxx_check() {
 }
 
 cpp_condition_check() {
+  inc=""
+  if test -n "$1" ; then
+    inc="#include <$1>"
+  fi
   cat > $TMPC << EOF
-#include <$1>
+$inc
 #if !($2)
 #error condition not true: $2
 #endif
@@ -236,7 +240,8 @@ openbsd()   { issystem "OpenBSD"; }
 os2()       { issystem "OS/2"; }
 qnx()       { issystem "QNX"; }
 sunos()     { issystem "SunOS"; }
-win32()     { cygwin || mingw32; }
+wine()      { issystem "Wine"; }
+win32()     { cygwin || mingw32 || wine; }
 
 # arch test boolean functions
 # x86/x86pc is used by QNX
@@ -410,6 +415,7 @@ Codecs:
   --disable-libnut          disable libnut [autodetect]
   --disable-ffmpeg_a        disable static FFmpeg [autodetect]
   --disable-ffmpeg_so       disable shared FFmpeg [autodetect]
+  --enable-vf-lavfi         enable libavfilter wrapper [disabled]
   --disable-libavcodec_mpegaudio_hp disable high precision audio decoding
                                     in libavcodec [enabled]
   --disable-tremor-internal disable internal Tremor [enabled]
@@ -645,12 +651,13 @@ _cross_compile=auto
 _prefix="/usr/local"
 ffmpeg_a=auto
 ffmpeg_so=auto
+_vf_lavfi=no
 _libavcodec_mpegaudio_hp=yes
 _libopencore_amrnb=auto
 _libopencore_amrwb=auto
 libopenjpeg=auto
 libavdecoders_all=$(sed -n 's/^[^#]*DEC.*(.*, *\(.*\)).*/\1_decoder/p' ffmpeg/libavcodec/allcodecs.c | tr '[a-z]' '[A-Z]')
-libavdecoders=$(echo $libavdecoders_all | sed -e 's/ LIB[A-Z0-9_]*_DECODER//g' -e s/PRORES_GPL_DECODER//)
+libavdecoders=$(echo $libavdecoders_all | sed -e 's/ LIB[A-Z0-9_]*_DECODER//g')
 libavencoders_all=$(sed -n 's/^[^#]*ENC.*(.*, *\(.*\)).*/\1_encoder/p' ffmpeg/libavcodec/allcodecs.c | tr '[a-z]' '[A-Z]')
 libavencoders=$(echo $libavencoders_all | sed -e 's/ LIB[A-Z0-9_]*_ENCODER//g')
 libavparsers_all=$(sed -n 's/^[^#]*PARSER.*(.*, *\(.*\)).*/\1_parser/p' ffmpeg/libavcodec/allcodecs.c | tr '[a-z]' '[A-Z]')
@@ -666,6 +673,8 @@ libavmuxers_all=$(sed -n 's/^[^#]*_MUX.*(.*, *\(.*\)).*/\1_muxer/p' ffmpeg/libav
 libavmuxers=$(echo $libavmuxers_all | sed -e 's/ LIB[A-Z0-9_]*_MUXER//g' -e s/RTP_MUXER// -e s/RTSP_MUXER// -e s/SAP_MUXER//)
 libavprotocols_all=$(sed -n 's/^[^#]*PROTOCOL.*(.*, *\(.*\)).*/\1_protocol/p' ffmpeg/libavformat/allformats.c | tr '[a-z]' '[A-Z]')
 libavprotocols=$libavprotocols_all
+libavfilters_all=$(sed -n 's/^[^#]*FILTER.*(.*, *\(.*\),.*).*/\1_filter/p' ffmpeg/libavfilter/allfilters.c | tr '[a-z]' '[A-Z]')
+libavfilters=$(echo $libavfilters_all | sed -e 's/ LIB[A-Z0-9_]*_FILTER//g' -e 's/ FREI0R[A-Z0-9_]*_FILTER//g' -e 's/ OCV_FILTER//g' -e 's/ MP_FILTER//g')
 _mencoder=yes
 _mplayer=yes
 _x11=auto
@@ -860,7 +869,7 @@ def_dos_paths="#define HAVE_DOS_PATHS 0"
 def_stream_cache="#define CONFIG_STREAM_CACHE 1"
 def_priority="#undef CONFIG_PRIORITY"
 def_pthread_cache="#undef PTHREAD_CACHE"
-need_shmem=yes
+shmem=no
 for ac_option do
   case "$ac_option" in
   --help|-help|-h)
@@ -1271,10 +1280,14 @@ for ac_option do
   --disable-demuxer=*) libavdemuxers=$(echo $libavdemuxers | sed "s/$(echo $ac_option | cut -d '=' -f 2 | tr '[a-z]' '[A-Z]')//g") ;;
   --enable-muxer=*)    libavmuxers="$libavmuxers $(echo $ac_option | cut -d '=' -f 2 | tr '[a-z]' '[A-Z]')" ;;
   --disable-muxer=*)    libavmuxers=$(echo $libavmuxers | sed "s/$(echo $ac_option | cut -d '=' -f 2 | tr '[a-z]' '[A-Z]')//g") ;;
+  --enable-filter=*)    libavfilters="$libavfilters $(echo $ac_option | cut -d '=' -f 2 | tr '[a-z]' '[A-Z]')" ;;
+  --disable-filter=*)    libavfilters=$(echo $libavfilters | sed "s/$(echo $ac_option | cut -d '=' -f 2 | tr '[a-z]' '[A-Z]')//g") ;;
   --enable-ffmpeg_a)    ffmpeg_a=yes    ;;
   --disable-ffmpeg_a)   ffmpeg_a=no     ;;
   --enable-ffmpeg_so)   ffmpeg_so=yes   ;;
   --disable-ffmpeg_so)  ffmpeg_so=no    ;;
+  --enable-vf-lavfi)    _vf_lavfi=yes   ;;
+  --disable-vf-lavfi)   _vf_lavfi=no    ;;
   --enable-libavcodec_mpegaudio_hp)     _libavcodec_mpegaudio_hp=yes    ;;
   --disable-libavcodec_mpegaudio_hp)    _libavcodec_mpegaudio_hp=no     ;;
 
@@ -1515,6 +1528,7 @@ else # if test -z "$_target"
     morphos) system_name=MorphOS ;;
     amigaos) system_name=AmigaOS ;;
     mingw32*) system_name=MINGW32 ;;
+    wine) system_name=Wine ;;
   esac
   # We need to convert underscores so that values like k6-2 and pentium-mmx can be passed
   host_arch=$(echo $_target | cut -d '-' -f 1)
@@ -1560,7 +1574,7 @@ fi
 
 if mingw32 ; then
   _getch=getch2-win.c
-  need_shmem=no
+  shmem=yes
 fi
 
 if amigaos ; then
@@ -1578,10 +1592,14 @@ fi
 if os2 ; then
   _exesuf=".exe"
   _getch=getch2-os2.c
-  need_shmem=no
+  shmem=yes
   _priority=yes
   def_dos_paths="#define HAVE_DOS_PATHS 1"
   def_priority="#define CONFIG_PRIORITY 1"
+fi
+
+if wine ; then
+  extra_cflags="-fno-pic -UWIN32 -U_WIN32 -U__WIN32 -U__WIN32__ -DWINE_NOWINSOCK -Dstricmp=strcasecmp $extra_cflags"
 fi
 
 for tmpdir in "$TMPDIR" "$TEMPDIR" "/tmp" ; do
@@ -2779,7 +2797,7 @@ echocheck "yasm"
 if test -z "$YASMFLAGS" ; then
   if darwin ; then
     x86_64 && objformat="macho64" || objformat="macho"
-  elif win32 ; then
+  elif win32 && ! wine ; then
     objformat="win32"
   elif os2 ; then
     _yasm=nasm
@@ -3576,7 +3594,7 @@ if test "$_mman" = yes ; then
 else
   def_mmap='#define HAVE_MMAP 0'
   def_mman_h='#define HAVE_SYS_MMAN_H 0'
-  os2 && need_mmap=yes
+  os2 && mmap=no
 fi
 echores "$_mman"
 
@@ -3614,6 +3632,8 @@ echores "$_dynamic_plugins"
 
 
 def_threads='#define HAVE_THREADS 0'
+def_pthreads='#define HAVE_PTHREADS 0'
+def_w32threads='#define HAVE_W32THREADS 0'
 
 echocheck "pthread"
 if linux ; then
@@ -3666,7 +3686,7 @@ if test "$_w32threads" = auto ; then
   _w32threads=no
   mingw32 && _w32threads=yes
 fi
-test "$_w32threads" = yes && def_threads='#define HAVE_THREADS 1'
+test "$_w32threads" = yes && def_threads='#define HAVE_THREADS 1' && def_w32threads='#define HAVE_W32THREADS 1'
 echores "$_w32threads"
 
 echocheck "rpath"
@@ -3887,35 +3907,24 @@ echores "$_shm"
 
 
 echocheck "strsep()"
-_strsep=no
-statement_check string.h 'char *s = "Hello, world!"; strsep(&s, ",")' && _strsep=yes
-if test "$_strsep" = yes ; then
-  def_strsep='#define HAVE_STRSEP 1'
- need_strsep=no
-else
-  def_strsep='#undef HAVE_STRSEP'
- need_strsep=yes
-fi
-echores "$_strsep"
+strsep=yes
+def_strsep='#define HAVE_STRSEP 1'
+statement_check string.h 'char *s = "Hello, world!"; strsep(&s, ",")' ||
+    { strsep=no ; def_strsep='#undef HAVE_STRSEP' ; }
+echores "$strsep"
 
 
 echocheck "vsscanf()"
+vsscanf=yes
+def_vsscanf='#define HAVE_VSSCANF 1'
 cat > $TMPC << EOF
 #define _ISOC99_SOURCE
 #include <stdarg.h>
 #include <stdio.h>
 int main(void) { va_list ap = { 0 }; vsscanf("foo", "bar", ap); return 0; }
 EOF
-_vsscanf=no
-cc_check && _vsscanf=yes
-if test "$_vsscanf" = yes ; then
-  def_vsscanf='#define HAVE_VSSCANF 1'
-  need_vsscanf=no
-else
-  def_vsscanf='#undef HAVE_VSSCANF'
-  need_vsscanf=yes
-fi
-echores "$_vsscanf"
+cc_check || { vsscanf=no ; def_vsscanf='#undef HAVE_VSSCANF' ; }
+echores "$vsscanf"
 
 
 echocheck "POSIX select()"
@@ -3946,45 +3955,27 @@ echores "$_select"
 
 
 echocheck "gettimeofday()"
-_gettimeofday=no
-statement_check sys/time.h 'struct timeval tv; struct timezone tz; gettimeofday(&tv, &tz)' && _gettimeofday=yes
-if test "$_gettimeofday" = yes ; then
-  def_gettimeofday='#define HAVE_GETTIMEOFDAY 1'
-  need_gettimeofday=no
-else
-  def_gettimeofday='#undef HAVE_GETTIMEOFDAY'
-  need_gettimeofday=yes
-fi
-echores "$_gettimeofday"
+gettimeofday=yes
+def_gettimeofday='#define HAVE_GETTIMEOFDAY 1'
+statement_check sys/time.h 'struct timeval tv; struct timezone tz; gettimeofday(&tv, &tz)' ||
+    { gettimeofday=no ; def_gettimeofday='#undef HAVE_GETTIMEOFDAY' ; }
+echores "$gettimeofday"
 
 
 echocheck "glob()"
-_glob=no
-statement_check glob.h 'glob("filename", 0, 0, 0)' && _glob=yes
-need_glob=no
-if test "$_glob" = yes ; then
-  def_glob='#define HAVE_GLOB 1'
-else
-  def_glob='#undef HAVE_GLOB'
-  # HACK! need_glob currently enables compilation of a
-  # win32-specific glob()-replacement.
-  # Other OS neither need it nor can they use it (mf:// is disabled for them).
-  win32 && need_glob=yes
-fi
-echores "$_glob"
+glob=yes
+def_glob='#define HAVE_GLOB 1'
+statement_check glob.h 'glob("filename", 0, 0, 0)' ||
+    { glob=no ; def_glob='#undef HAVE_GLOB' ; }
+echores "$glob"
 
 
 echocheck "setenv()"
-_setenv=no
-statement_check stdlib.h 'setenv("", "", 0)' && _setenv=yes
-if test "$_setenv" = yes ; then
-  def_setenv='#define HAVE_SETENV 1'
-  need_setenv=no
-else
-  def_setenv='#undef HAVE_SETENV'
-  need_setenv=yes
-fi
-echores "$_setenv"
+setenv=yes
+def_setenv='#define HAVE_SETENV 1'
+statement_check stdlib.h 'setenv("", "", 0)' ||
+    { setenv=no ; def_setenv='#undef HAVE_SETENV' ; }
+echores "$setenv"
 
 
 echocheck "setmode()"
@@ -5855,7 +5846,7 @@ if test "$_libdvdcss_internal" = auto && test "$_dvdread_internal" = yes ; then
   hpux && test "$_hpux_scsi_h" = no && _libdvdcss_internal=no
 fi
 if test "$_libdvdcss_internal" = yes ; then
-  if linux || netbsd || openbsd || bsdos ; then
+  if linux || netbsd || openbsd || bsdos || wine ; then
     def_dvd_linux='#define HAVE_LINUX_DVD_STRUCT 1'
     openbsd && def_dvd_openbsd='#define HAVE_OPENBSD_DVD_STRUCT 1'
   elif freebsd || dragonfly ; then
@@ -6062,7 +6053,7 @@ EOF
     if test "$_ass" = no ; then
         res_comment="FreeType >= 2.2.1 needed"
     elif test "$ass_internal" != yes ; then
-    cat > $TMPC << EOF
+        cat > $TMPC << EOF
 #include <ass/ass.h>
 int main(void) {
 #if !defined(LIBASS_VERSION) || LIBASS_VERSION < 0x00910000
@@ -6872,6 +6863,7 @@ else
   def_ffmpeg_so='#undef CONFIG_FFMPEG_SO'
   nocodecmodules="ffmpeg $nocodecmodules"
 fi
+test "$_vf_lavfi" = yes && def_vf_lavfi='#define CONFIG_VF_LAVFI 1'|| libavfilters=''
 test "$_libavcodec_mpegaudio_hp" = yes &&
   def_libavcodec_mpegaudio_hp='#define CONFIG_MPEGAUDIO_HP 1' &&
   mak_libavcodec_mpegaudio_hp='CONFIG_MPEGAUDIO_HP = yes'
@@ -6922,14 +6914,6 @@ else
   nocodecmodules="libopencore_amrwb $nocodecmodules"
 fi
 echores "$_libopencore_amrwb"
-
-
-if test "$_libopencore_amrnb" = no && test "$_libopencore_amrwb" = no ; then
-  libavdecoders="$libavdecoders PRORES_GPL_DECODER"
-  def_ffmpeg_license='#define FFMPEG_LICENSE "GPL version 2"'
-else
-  def_ffmpeg_license='#define FFMPEG_LICENSE "GPL version 2 or later"'
-fi
 
 
 echocheck "libdv-0.9.5+"
@@ -7001,7 +6985,7 @@ if test "$_x264" = auto && test "$_mencoder" = yes ; then
   cat > $TMPC << EOF
 #include <inttypes.h>
 #include <x264.h>
-#if !(X264_BUILD >= 115)
+#if !(X264_BUILD >= 118)
 #error We do not support old versions of x264. Get the latest from git.
 #endif
 int main(void) { x264_encoder_open((void*)0); return 0; }
@@ -7820,7 +7804,7 @@ fi
 
 CFLAGS="$CFLAGS -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE"
 
-CXXFLAGS=" $CFLAGS -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS"
+CXXFLAGS=" $CFLAGS -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS"
 
 # This must be the last test to be performed. Any other tests following it
 # could fail due to linker errors. libdvdnavmini is intentionally not linked
@@ -7938,13 +7922,14 @@ $(mak_enable "$cpuexts_all" "$cpuexts" HAVE)
 MENCODER = $_mencoder
 MPLAYER  = $_mplayer
 
-NEED_GETTIMEOFDAY = $need_gettimeofday
-NEED_GLOB         = $need_glob
-NEED_MMAP         = $need_mmap
-NEED_SETENV       = $need_setenv
-NEED_SHMEM        = $need_shmem
-NEED_STRSEP       = $need_strsep
-NEED_VSSCANF      = $need_vsscanf
+# operating system features which have local fallbacks
+GETTIMEOFDAY = $gettimeofday
+GLOB         = $glob
+MMAP         = $mmap
+SETENV       = $setenv
+SHMEM        = $shmem
+STRSEP       = $strsep
+VSSCANF      = $vsscanf
 
 # features
 3DFX = $_3dfx
@@ -8112,6 +8097,7 @@ FFMPEG     = $ffmpeg
 FFMPEG_A   = $ffmpeg_a
 
 CONFIG_AVCODEC  = $ffmpeg_a
+CONFIG_AVFILTER = $ffmpeg_a
 CONFIG_AVFORMAT = $ffmpeg_a
 CONFIG_AVUTIL   = $ffmpeg_a
 CONFIG_POSTPROC = $ffmpeg_a
@@ -8171,6 +8157,7 @@ CONFIG_GPL      = yes
 CONFIG_MLIB     = $_mlib
 CONFIG_MUXERS   = $_mencoder
 CONFIG_RTPDEC   = $networking
+CONFIG_VF_LAVFI = $_vf_lavfi
 CONFIG_VDPAU    = $_vdpau
 CONFIG_XVMC     = $_xvmc
 CONFIG_ZLIB     = $_zlib
@@ -8189,6 +8176,7 @@ $(echo $libavmuxers    | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
 $(echo $libavprotocols | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
 $(echo $libavbsfs      | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
 $(echo $libavhwaccels  | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
+$(echo $libavfilters   | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
 EOF
 
 #############################################################################
@@ -8227,8 +8215,10 @@ cat > $TMPH << EOF
    */
 #define CONFIG_FAKE_MONO 1
 
-/* set up max. outburst. use 65536 for ALSA 0.5, for others 16384 is enough */
-#define MAX_OUTBURST 65536
+/* set up max. outburst. use 131072 for TrueHD SPDIF pass-through,
+ * use 65536 for ALSA 0.5, for others 16384 is enough
+ */
+#define MAX_OUTBURST 131072
 
 /* set up audio OUTBURST. Do not change this! */
 #define OUTBURST 512
@@ -8622,11 +8612,14 @@ $def_roundf
 $def_threads
 $def_trunc
 $def_truncf
+$def_vf_lavfi
+$def_w32threads
 $def_xform_asm
 $def_xmm_clobbers
 $def_yasm
 
 #define CONFIG_AUDIO_FLOAT 0
+#define CONFIG_AVSERVER 0
 #define CONFIG_FASTDIV 0
 #define CONFIG_FFSERVER 0
 #define CONFIG_GPL 1
@@ -8644,9 +8637,11 @@ $def_yasm
 #define HAVE_INLINE_ASM 1
 #define HAVE_ISATTY 0
 #define HAVE_LDBRX 0
+#define HAVE_LOCALTIME_R 0
 #define HAVE_MAPVIEWOFFILE 0
 #define HAVE_PPC4XX 0
 #define HAVE_STRERROR_R 0
+#define HAVE_STRPTIME 0
 #define HAVE_SYMVER_ASM_LABEL 0
 #define HAVE_SYMVER_GNU_ASM 0
 #define HAVE_SYS_SELECT_H 0
@@ -8673,7 +8668,7 @@ $def_yasm
 #endif
 
 #define FFMPEG_CONFIGURATION "--enable-gpl --enable-postproc"
-$def_ffmpeg_license
+#define FFMPEG_LICENSE "GPL version 2 or later"
 
 #define LIBAV_CONFIGURATION FFMPEG_CONFIGURATION
 #define LIBAV_LICENSE FFMPEG_LICENSE
@@ -8700,6 +8695,7 @@ $(ff_config_enable "$libavmuxers_all"    "$libavmuxers" "#")
 $(ff_config_enable "$libavprotocols_all" "$libavprotocols" "#")
 $(ff_config_enable "$libavbsfs_all"      "$libavbsfs" "#")
 $(ff_config_enable "$libavhwaccels_all"  "$libavhwaccels" "#")
+$(ff_config_enable "$libavfilters_all"   "$libavfilters" "#")
 
 #endif /* MPLAYER_CONFIG_H */
 EOF
