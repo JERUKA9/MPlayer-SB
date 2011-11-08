@@ -139,6 +139,7 @@ double cur_vout_time_usage=0;
 int benchmark=0;
 
 // A-V sync:
+int delay_corrected=1;
 static float default_max_pts_correction=-1;//0.01f;
 static float max_pts_correction=0;//default_max_pts_correction;
 static float c_total=0;
@@ -259,14 +260,14 @@ static void parse_cfgfiles( m_config_t* conf )
 {
   char *conffile;
   if (!disable_system_conf &&
-      m_config_parse_config_file(conf, MPLAYER_CONFDIR "/mencoder.conf") < 0)
+      m_config_parse_config_file(conf, MPLAYER_CONFDIR "/mencoder.conf", 1) < 0)
     mencoder_exit(1,MSGTR_ConfigFileError);
 
   if (!disable_user_conf) {
     if ((conffile = get_path("mencoder.conf")) == NULL) {
       mp_msg(MSGT_CPLAYER,MSGL_ERR,MSGTR_GetpathProblem);
     } else {
-      if (m_config_parse_config_file(conf, conffile) < 0)
+      if (m_config_parse_config_file(conf, conffile, 1) < 0)
         mencoder_exit(1,MSGTR_ConfigFileError);
       free(conffile);
     }
@@ -380,13 +381,23 @@ static float stop_time(demuxer_t* demuxer, muxer_stream_t* mux_v)
 	return timeleft;
 }
 
+/// Returns a_pts
+static float calc_a_pts(demux_stream_t *d_audio)
+{
+    sh_audio_t * sh_audio = d_audio ? d_audio->sh : NULL;
+    float a_pts = 0.;
+    if (sh_audio)
+        a_pts = d_audio->pts + (ds_tell_pts(d_audio) - sh_audio->a_in_buffer_len)/(float)sh_audio->i_bps;
+    return a_pts;
+}
+
 /** \brief Seeks audio forward to pts by dumping audio packets
  *  \return The current audio pts. */
 static float forward_audio(float pts, demux_stream_t *d_audio, muxer_stream_t* mux_a)
 {
     sh_audio_t * sh_audio = d_audio ? d_audio->sh : NULL;
     int samplesize, avg;
-    float a_pts = calc_a_pts(sh_audio, d_audio);
+    float a_pts = calc_a_pts(d_audio);
 
     if (!sh_audio) return a_pts;
 
@@ -398,7 +409,7 @@ static float forward_audio(float pts, demux_stream_t *d_audio, muxer_stream_t* m
     // carefully checking if a_pts is truely correct by reading tiniest amount of data possible.
     if (pts > a_pts && a_pts == 0.0 && samplesize) {
         if (demux_read_data(sh_audio->ds,mux_a->buffer,samplesize) <= 0) return a_pts; // EOF
-        a_pts = calc_a_pts(sh_audio, d_audio);
+        a_pts = calc_a_pts(d_audio);
     }
 
     while (pts > a_pts) {
@@ -413,7 +424,7 @@ static float forward_audio(float pts, demux_stream_t *d_audio, muxer_stream_t* m
             len = ds_get_packet(sh_audio->ds, &crap);
         }
         if (len <= 0) break; // EOF of audio.
-        a_pts = calc_a_pts(sh_audio, d_audio);
+        a_pts = calc_a_pts(d_audio);
     }
     return a_pts;
 }
@@ -1532,11 +1543,14 @@ if(sh_audio && !demuxer2){
           ((ds_tell(d_audio)-sh_audio->a_in_buffer_len)/sh_audio->audio.dwSampleSize) :
           (d_audio->block_no); // <- used for VBR audio
         a_pts=samples*(float)sh_audio->audio.dwScale/(float)sh_audio->audio.dwRate;
+	delay_corrected=1;
     } else
 #endif
     {
       // PTS = (last timestamp) + (bytes after last timestamp)/(bytes per sec)
-      a_pts=calc_a_pts(sh_audio, d_audio);
+      a_pts=d_audio->pts;
+      if(!delay_corrected) if(a_pts) delay_corrected=1;
+      a_pts+=(ds_tell_pts(d_audio)-sh_audio->a_in_buffer_len)/(float)sh_audio->i_bps;
     }
     v_pts=sh_video ? sh_video->pts : d_video->pts;
     // av = compensated (with out buffering delay) A-V diff

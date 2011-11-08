@@ -861,7 +861,7 @@ static void parse_cfgfiles(m_config_t *conf)
     char *conffile;
     int conffile_fd;
     if (!disable_system_conf &&
-        m_config_parse_config_file(conf, MPLAYER_CONFDIR "/mplayer.conf") < 0)
+        m_config_parse_config_file(conf, MPLAYER_CONFDIR "/mplayer.conf", 1) < 0)
         exit_player(EXIT_NONE);
     if ((conffile = get_path("")) == NULL) {
         mp_msg(MSGT_CPLAYER, MSGL_WARN, MSGTR_NoHomeDir);
@@ -881,7 +881,7 @@ static void parse_cfgfiles(m_config_t *conf)
                 close(conffile_fd);
             }
             if (!disable_user_conf &&
-                m_config_parse_config_file(conf, conffile) < 0)
+                m_config_parse_config_file(conf, conffile, 1) < 0)
                 exit_player(EXIT_NONE);
             free(conffile);
         }
@@ -958,7 +958,7 @@ static int try_load_config(m_config_t *conf, const char *file)
     if (stat(file, &st))
         return 0;
     mp_msg(MSGT_CPLAYER, MSGL_INFO, MSGTR_LoadingConfig, file);
-    m_config_parse_config_file(conf, file);
+    m_config_parse_config_file(conf, file, 0);
     return 1;
 }
 
@@ -1720,7 +1720,31 @@ static double written_audio_pts(sh_audio_t *sh_audio, demux_stream_t *d_audio)
 {
     double buffered_output;
     // first calculate the end pts of audio that has been output by decoder
-    double a_pts = calc_a_pts(sh_audio, d_audio);
+    double a_pts = sh_audio->pts;
+    if (a_pts != MP_NOPTS_VALUE)
+	// Good, decoder supports new way of calculating audio pts.
+	// sh_audio->pts is the timestamp of the latest input packet with
+	// known pts that the decoder has decoded. sh_audio->pts_bytes is
+	// the amount of bytes the decoder has written after that timestamp.
+	a_pts += sh_audio->pts_bytes / (double) sh_audio->o_bps;
+    else {
+	// Decoder doesn't support new way of calculating pts (or we're
+	// being called before it has decoded anything with known timestamp).
+	// Use the old method of audio pts calculation: take the timestamp
+	// of last packet with known pts the decoder has read data from,
+	// and add amount of bytes read after the beginning of that packet
+	// divided by input bps. This will be inaccurate if the input/output
+	// ratio is not constant for every audio packet or if it is constant
+	// but not accurately known in sh_audio->i_bps.
+
+	a_pts = d_audio->pts;
+	// ds_tell_pts returns bytes read after last timestamp from
+	// demuxing layer, decoder might use sh_audio->a_in_buffer for bytes
+	// it has read but not decoded
+	if (sh_audio->i_bps)
+	    a_pts += (ds_tell_pts(d_audio) - sh_audio->a_in_buffer_len) /
+		(double)sh_audio->i_bps;
+    }
     // Now a_pts hopefully holds the pts for end of audio from decoder.
     // Substract data in buffers between decoder and audio out.
 
