@@ -534,3 +534,50 @@ int common_init(void)
 #endif
     return 1;
 }
+
+/// Returns a_pts
+double calc_a_pts(sh_audio_t *sh_audio, demux_stream_t *d_audio)
+{
+    #ifdef CONFIG_DVDREAD
+        float a_pts = 0.;
+        if (sh_audio)
+            a_pts = d_audio->pts + (ds_tell_pts(d_audio) - sh_audio->a_in_buffer_len)/(float)sh_audio->i_bps;
+    #else
+        double a_pts;
+        if(!sh_audio || !d_audio)
+            return MP_NOPTS_VALUE;
+        // first calculate the end pts of audio that has been output by decoder
+        a_pts = sh_audio->pts;
+        // If we cannot get any useful information at all from the demuxer layer
+        // just count the decoded bytes. This is still better than constantly
+        // resetting to 0.
+        if (sh_audio->pts_bytes && a_pts == MP_NOPTS_VALUE &&
+            !d_audio->pts && !sh_audio->i_bps)
+            a_pts = 0;
+        if (a_pts != MP_NOPTS_VALUE)
+            // Good, decoder supports new way of calculating audio pts.
+            // sh_audio->pts is the timestamp of the latest input packet with
+            // known pts that the decoder has decoded. sh_audio->pts_bytes is
+            // the amount of bytes the decoder has written after that timestamp.
+            a_pts += sh_audio->pts_bytes / (double) sh_audio->o_bps;
+        else {
+            // Decoder doesn't support new way of calculating pts (or we're
+            // being called before it has decoded anything with known timestamp).
+            // Use the old method of audio pts calculation: take the timestamp
+            // of last packet with known pts the decoder has read data from,
+            // and add amount of bytes read after the beginning of that packet
+            // divided by input bps. This will be inaccurate if the input/output
+            // ratio is not constant for every audio packet or if it is constant
+            // but not accurately known in sh_audio->i_bps.
+
+            a_pts = d_audio->pts;
+            // ds_tell_pts returns bytes read after last timestamp from
+            // demuxing layer, decoder might use sh_audio->a_in_buffer for bytes
+            // it has read but not decoded
+            if (sh_audio->i_bps)
+                a_pts += (ds_tell_pts(d_audio) - sh_audio->a_in_buffer_len) /
+                         (double)sh_audio->i_bps;
+        }
+    #endif
+    return a_pts;
+}

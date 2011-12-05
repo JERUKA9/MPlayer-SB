@@ -33,8 +33,7 @@ OS_FEATURE-$(STRSEP)                 += osdep/strsep.c
 OS_FEATURE-$(VSSCANF)                += osdep/vsscanf.c
 
 # conditional source declarations
-SRCS_AUDIO_INPUT-$(ALSA1X)           += stream/ai_alsa1x.c
-SRCS_AUDIO_INPUT-$(ALSA9)            += stream/ai_alsa.c
+SRCS_AUDIO_INPUT-$(ALSA)             += stream/ai_alsa.c
 SRCS_AUDIO_INPUT-$(OSS)              += stream/ai_oss.c
 SRCS_COMMON-$(AUDIO_INPUT)           += $(SRCS_AUDIO_INPUT-yes)
 SRCS_COMMON-$(BITMAP_FONT)           += sub/font_load.c
@@ -116,6 +115,7 @@ SRCS_COMMON-$(LIBASS_INTERNAL)       += libass/ass.c \
                                         libass/ass_parse.c \
                                         libass/ass_render.c \
                                         libass/ass_render_api.c \
+                                        libass/ass_shaper.c \
                                         libass/ass_strtod.c \
                                         libass/ass_utils.c \
 
@@ -496,9 +496,7 @@ SRCS_COMMON = asxparser.c \
 
 SRCS_MPLAYER-$(3DFX)         += libvo/vo_3dfx.c
 SRCS_MPLAYER-$(AA)           += libvo/vo_aa.c
-SRCS_MPLAYER-$(ALSA1X)       += libao2/ao_alsa.c
-SRCS_MPLAYER-$(ALSA5)        += libao2/ao_alsa5.c
-SRCS_MPLAYER-$(ALSA9)        += libao2/ao_alsa.c
+SRCS_MPLAYER-$(ALSA)         += libao2/ao_alsa.c
 SRCS_MPLAYER-$(APPLE_IR)     += input/appleir.c
 SRCS_MPLAYER-$(APPLE_REMOTE) += input/ar.c
 SRCS_MPLAYER-$(ARTS)         += libao2/ao_arts.c
@@ -958,6 +956,7 @@ uninstall:
 
 clean:
 	-$(MAKE) -C ffmpeg $@
+	-$(MAKE) -C tests clean
 	-rm -f $(call ADD_ALL_DIRS,/*.o /*.a /*.ho /*~)
 	-rm -f $(call ADD_ALL_EXESUFS,mplayer mencoder)
 
@@ -1120,12 +1119,14 @@ dhahelperclean:
 	-rm -f vidix/dhahelper/*.o vidix/dhahelper/*~ vidix/dhahelper/test
 	-rm -f $(addprefix vidix/dhahelperwin/,*.o *~ dhahelper.sys dhasetup.exe base.tmp temp.exp)
 
+fatetest: mplayer$(EXESUF)
+	$(MAKE) -C tests fatetest
 
 
 -include $(DEP_FILES) $(DRIVER_DEP_FILES) $(TESTS_DEP_FILES) $(TOOLS_DEP_FILES) $(DHAHELPER_DEP_FILES)
 
 .PHONY: all doxygen *install* *tools drivers dhahelper*
-.PHONY: checkheaders *clean tests check_checksums
+.PHONY: checkheaders *clean tests check_checksums fatetest
 .PHONY: doc html-chunked* html-single* xmllint*
 
 # Disable suffix rules.  Most of the builtin rules are suffix rules,

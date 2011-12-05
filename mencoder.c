@@ -239,7 +239,7 @@ static edl_record_ptr edl_records = NULL; ///< EDL entries memory area
 static edl_record_ptr next_edl_record = NULL; ///< only for traversing edl_records
 static short edl_muted; ///< Stores whether EDL is currently in muted mode.
 static short edl_seeking; ///< When non-zero, stream is seekable.
-static short edl_seek_type; ///< When non-zero, frames are discarded instead of seeking.
+static int edl_seek_type; ///< When non-zero, frames are discarded instead of seeking.
 
 /* This header requires all the global variable declarations. */
 #include "cfg-mencoder.h"
@@ -381,23 +381,13 @@ static float stop_time(demuxer_t* demuxer, muxer_stream_t* mux_v)
 	return timeleft;
 }
 
-/// Returns a_pts
-static float calc_a_pts(demux_stream_t *d_audio)
-{
-    sh_audio_t * sh_audio = d_audio ? d_audio->sh : NULL;
-    float a_pts = 0.;
-    if (sh_audio)
-        a_pts = d_audio->pts + (ds_tell_pts(d_audio) - sh_audio->a_in_buffer_len)/(float)sh_audio->i_bps;
-    return a_pts;
-}
-
 /** \brief Seeks audio forward to pts by dumping audio packets
  *  \return The current audio pts. */
 static float forward_audio(float pts, demux_stream_t *d_audio, muxer_stream_t* mux_a)
 {
     sh_audio_t * sh_audio = d_audio ? d_audio->sh : NULL;
     int samplesize, avg;
-    float a_pts = calc_a_pts(d_audio);
+    float a_pts = calc_a_pts(sh_audio, d_audio);
 
     if (!sh_audio) return a_pts;
 
@@ -409,7 +399,7 @@ static float forward_audio(float pts, demux_stream_t *d_audio, muxer_stream_t* m
     // carefully checking if a_pts is truely correct by reading tiniest amount of data possible.
     if (pts > a_pts && a_pts == 0.0 && samplesize) {
         if (demux_read_data(sh_audio->ds,mux_a->buffer,samplesize) <= 0) return a_pts; // EOF
-        a_pts = calc_a_pts(d_audio);
+        a_pts = calc_a_pts(sh_audio, d_audio);
     }
 
     while (pts > a_pts) {
@@ -424,7 +414,7 @@ static float forward_audio(float pts, demux_stream_t *d_audio, muxer_stream_t* m
             len = ds_get_packet(sh_audio->ds, &crap);
         }
         if (len <= 0) break; // EOF of audio.
-        a_pts = calc_a_pts(d_audio);
+        a_pts = calc_a_pts(sh_audio, d_audio);
     }
     return a_pts;
 }
@@ -1547,10 +1537,14 @@ if(sh_audio && !demuxer2){
     } else
 #endif
     {
-      // PTS = (last timestamp) + (bytes after last timestamp)/(bytes per sec)
-      a_pts=d_audio->pts;
-      if(!delay_corrected) if(a_pts) delay_corrected=1;
-      a_pts+=(ds_tell_pts(d_audio)-sh_audio->a_in_buffer_len)/(float)sh_audio->i_bps;
+        // PTS = (last timestamp) + (bytes after last timestamp)/(bytes per sec)
+        #ifdef CONFIG_DVDREAD
+            a_pts=d_audio->pts;
+            if(!delay_corrected) if(a_pts) delay_corrected=1;
+            a_pts+=(ds_tell_pts(d_audio)-sh_audio->a_in_buffer_len)/(float)sh_audio->i_bps;
+        #else
+            a_pts=calc_a_pts(sh_audio, d_audio);
+        #endif
     }
     v_pts=sh_video ? sh_video->pts : d_video->pts;
     // av = compensated (with out buffering delay) A-V diff
