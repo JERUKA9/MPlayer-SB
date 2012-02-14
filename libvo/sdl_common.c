@@ -25,6 +25,7 @@
 #include "input/input.h"
 #include "input/mouse.h"
 #include "video_out.h"
+#include "geometry.h"
 
 static int old_w;
 static int old_h;
@@ -55,9 +56,18 @@ int vo_sdl_init(void)
 {
     reinit = 0;
 
-    if (!SDL_WasInit(SDL_INIT_VIDEO) &&
-        SDL_Init(SDL_INIT_VIDEO|SDL_INIT_NOPARACHUTE) < 0)
-        return 0;
+    if (!SDL_WasInit(SDL_INIT_VIDEO)) {
+        // Unfortunately SDL_WINDOWID must be set at SDL_Init
+        // and is ignored afterwards, thus it cannot work per-file.
+        // Also, a value of 0 does not work for selecting the root window.
+        if (WinID > 0) {
+            char envstr[20];
+            snprintf(envstr, sizeof(envstr), "0x%"PRIx64, WinID);
+            putenv("SDL_WINDOWID=1");
+        }
+        if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_NOPARACHUTE) < 0)
+            return 0;
+    }
 
     // Setup Keyrepeats (500/30 are defaults)
     SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, 100 /*SDL_DEFAULT_REPEAT_INTERVAL*/);
@@ -100,22 +110,31 @@ void vo_sdl_fullscreen(void)
     reinit = 1;
 }
 
-int sdl_set_mode(int bpp, uint32_t flags)
+SDL_Surface *sdl_set_mode(int bpp, uint32_t flags)
 {
     SDL_Surface *s;
     mode_flags = flags;
     if (vo_fs) flags |= SDL_FULLSCREEN;
     // doublebuf with opengl creates flickering
+#if !defined( __AMIGAOS4__ ) && !defined( __APPLE__ )
     if (vo_doublebuffering && !(flags & SDL_OPENGL))
         flags |= SDL_DOUBLEBUF;
+#endif
+    if (!vo_border)
+        flags |= SDL_NOFRAME;
+    if (geometry_xy_changed) {
+        char envstr[20];
+        snprintf(envstr, sizeof(envstr), "%i,%i", vo_dx, vo_dy);
+        putenv("SDL_VIDEO_WINDOW_POS=1");
+    }
     s = SDL_SetVideoMode(vo_dwidth, vo_dheight, bpp, flags);
     if (!s) {
       mp_msg(MSGT_VO, MSGL_FATAL, "SDL SetVideoMode failed: %s\n", SDL_GetError());
-      return -1;
+      return NULL;
     }
     vo_dwidth  = s->w;
     vo_dheight = s->h;
-    return 0;
+    return s;
 }
 
 static const struct mp_keymap keysym_map[] = {

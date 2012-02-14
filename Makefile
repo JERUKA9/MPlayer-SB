@@ -115,7 +115,6 @@ SRCS_COMMON-$(LIBASS_INTERNAL)       += libass/ass.c \
                                         libass/ass_parse.c \
                                         libass/ass_render.c \
                                         libass/ass_render_api.c \
-                                        libass/ass_shaper.c \
                                         libass/ass_strtod.c \
                                         libass/ass_utils.c \
 
@@ -689,7 +688,8 @@ SRCS_MENCODER = mencoder.c \
                 $(SRCS_MENCODER-yes)
 
 # (linking) order matters for these libraries
-FFMPEGPARTS = libpostproc libswscale libavfilter libavformat libavcodec libavutil
+FFMPEGPARTS_ALL = libpostproc libavfilter libavformat libavcodec libswscale libswresample libavutil
+FFMPEGPARTS = $(foreach part, $(FFMPEGPARTS_ALL), $(if $(wildcard ffmpeg/$(part)), $(part)))
 FFMPEGLIBS  = $(foreach part, $(FFMPEGPARTS), ffmpeg/$(part)/$(part).a)
 FFMPEGFILES = $(foreach part, $(FFMPEGPARTS), $(wildcard $(addprefix ffmpeg/$(part)/,*.[chS] /*/*.[chS] /*/*.asm)))
 

@@ -112,7 +112,6 @@ typedef struct ass_track {
     int WrapStyle;
     int ScaledBorderAndShadow;
     int Kerning;
-    char *Language;
 
     int default_style;      // index of default style
     char *name;             // file name in case of external subs, 0 for streams
