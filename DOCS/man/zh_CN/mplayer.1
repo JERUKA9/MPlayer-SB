@@ -1,4 +1,4 @@
-.\" sync with en/mplayer.1 rev. 34663
+.\" sync with en/mplayer.1 rev. 34775
 .\" MPlayer (C) 2000-2012 MPlayer Team
 .\" This man page was/is translated by JRaSH<jrash06 at gmail.com>
 .
@@ -31,7 +31,7 @@
 .\" 标题
 .\" --------------------------------------------------------------------------
 .
-.TH MPlayer 1 "2011-12-23" "MPlayer 项目" "影视播放器"
+.TH MPlayer 1 "2012-02-24" "MPlayer 项目" "影视播放器"
 .
 .SH 名称
 mplayer  \- 影视播放器
@@ -533,6 +533,8 @@ flip=yes
 mf=type=png:fps=25
 # 怪异的负片图像好酷。
 vf=eq2=1.0:\-0.8
+# OSD 播放进度条垂直放置方式
+progbar-align=50
 .fi
 .PP
 .I "MENCODER 配置文件示例："
@@ -2609,6 +2611,11 @@ FreeType 字体的默认路径为：~/.mplayer/\:subfont.ttf)。
 启用该项支持）。
 .
 .TP
+.B \-progbar\-align <0-100>
+指定播放进度条垂直方向放置方式\
+（0：置顶，100：置底，默认值为 50，即居中）。
+.
+.TP
 .B \-sid <代码>（也请参见 \-slang、\-vobsubid）
 显示由 <代码>（0\-31）指定的字幕流。\
 MPlayer 以详细输出模式（\-v）运行时，会打印可用的字幕代码。\
@@ -3458,8 +3465,9 @@ vdpau、x11、xv、xvmc、corevideo）时，坐标是相对于 \-xineramascreen 
 所给屏幕的值。
 .br
 .I 注意：
-该选项仅 x11、xmga、xv、xvmc、xvidix、gl、gl2、directx、fbdev、tdfxfb 和 \
-corevideo 视频输出驱动支持。
+该选项仅 x11、xmga、xv、xvmc、xvidix、gl、gl2、direct3d、\
+directx、fbdev、sdl、dfxfb 和 corevideo 视频输出驱动\
+支持。
 .sp 1
 .I 示例：
 .PD 0

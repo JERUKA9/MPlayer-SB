@@ -16,22 +16,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef MPLAYER_GUI_STRING_H
-#define MPLAYER_GUI_STRING_H
+#ifndef MPLAYER_SETENV_H
+#define MPLAYER_SETENV_H
 
-#include <stdio.h>
+#include "config.h"
 
-char *decomment(char *in);
-char *fgetstr(char *str, int size, FILE *file);
-char *gstrchr(const char *str, int c);
-int gstrcmp(const char *a, const char *b);
-char *gstrdup(const char *str);
-int gstrncmp(const char *a, const char *b, size_t n);
-void setddup(char **old, const char *dir, const char *name);
-void setdup(char **old, const char *str);
-char *strlower(char *in);
-char *strswap(char *in, char from, char to);
-char *TranslateFilename(int how, char *fname, size_t maxlen);
-char *trim(char *in);
+#if !HAVE_SETENV
+int setenv(const char *name, const char *val, int overwrite);
+#endif
 
-#endif /* MPLAYER_GUI_STRING_H */
+#endif /* MPLAYER_SETENV_H */
