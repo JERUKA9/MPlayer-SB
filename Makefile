@@ -517,10 +517,10 @@ SRCS_MPLAYER-$(FFMPEG)       += libvo/vo_png.c
 SRCS_MPLAYER-$(GGI)          += libvo/vo_ggi.c
 SRCS_MPLAYER-$(GIF)          += libvo/vo_gif89a.c
 SRCS_MPLAYER-$(GL)           += libvo/gl_common.c libvo/vo_gl.c \
-                                libvo/vo_gl2.c libvo/csputils.c
+                                libvo/csputils.c
 SRCS_MPLAYER-$(GL_SDL)       += libvo/sdl_common.c
-SRCS_MPLAYER-$(GL_WIN32)     += libvo/w32_common.c
-SRCS_MPLAYER-$(GL_X11)       += libvo/x11_common.c
+SRCS_MPLAYER-$(GL_WIN32)     += libvo/w32_common.c libvo/vo_gl2.c
+SRCS_MPLAYER-$(GL_X11)       += libvo/x11_common.c libvo/vo_gl2.c
 SRCS_MPLAYER-$(MATRIXVIEW)   += libvo/vo_matrixview.c libvo/matrixview.c
 SRCS_MPLAYER-$(GUI)          += gui/util/bitmap.c \
                                 gui/util/list.c \
@@ -545,7 +545,7 @@ SRCS_MPLAYER-$(GUI_GTK)      += gui/app.c \
                                 gui/ui/menu.c \
                                 gui/ui/playbar.c \
                                 gui/ui/render.c \
-                                gui/ui/sub.c \
+                                gui/ui/video.c \
                                 gui/ui/widgets.c \
                                 gui/util/cut.c \
                                 gui/wm/ws.c \

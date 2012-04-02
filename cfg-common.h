@@ -32,7 +32,6 @@
 #include "libmpdemux/demux_viv.h"
 #include "libmpdemux/demuxer.h"
 #include "libmpdemux/mf.h"
-#include "libpostproc/postprocess.h"
 #include "sub/sub.h"
 #include "sub/unrar_exec.h"
 #include "osdep/priority.h"
@@ -50,7 +49,9 @@
 #include "m_option.h"
 #include "mp_msg.h"
 #include "mpcommon.h"
-
+#ifdef CONFIG_POSTPROC
+#include "libpostproc/postprocess.h"
+#endif
 
 
 #ifdef CONFIG_RADIO
@@ -315,7 +316,7 @@ const m_option_t common_opts[] = {
 // ------------------------- stream options --------------------
 
 #ifdef CONFIG_STREAM_CACHE
-    {"cache", &stream_cache_size, CONF_TYPE_INT, CONF_RANGE, 32, 1048576, NULL},
+    {"cache", &stream_cache_size, CONF_TYPE_INT, CONF_RANGE, 32, 0x7fffffff, NULL},
     {"nocache", &stream_cache_size, CONF_TYPE_FLAG, 0, 1, 0, NULL},
     {"cache-min", &stream_cache_min_percent, CONF_TYPE_FLOAT, CONF_RANGE, 0, 99, NULL},
     {"cache-seek-min", &stream_cache_seek_min_percent, CONF_TYPE_FLOAT, CONF_RANGE, 0, 99, NULL},

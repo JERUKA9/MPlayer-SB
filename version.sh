@@ -17,7 +17,7 @@ test $svn_revision || svn_revision=UNKNOWN
 version=$svn_revision
 fi
 
-NEW_REVISION="#define VERSION \"SB26\""
+NEW_REVISION="#define VERSION \"SB29\""
 OLD_REVISION=$(head -n 1 version.h 2> /dev/null)
 TITLE='#define MP_TITLE "%s "VERSION" (C) 2000-2012 MPlayer Team\nCustom build by SubJunk, http://www.spirton.com\n\n"'
 

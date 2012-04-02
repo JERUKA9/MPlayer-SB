@@ -1,4 +1,4 @@
-// $Revision: 34719 $
+// $Revision: 34785 $
 // MASTER FILE. Use this file as base for translations.
 // Translated files should be sent to the mplayer-DOCS mailing list or
 // to the help messages maintainer, see DOCS/tech/MAINTAINERS.
@@ -849,7 +849,7 @@ static const char help_text[]=
 #define MSGTR_PREFERENCES_PriorityNormal "normal"
 #define MSGTR_PREFERENCES_PriorityNormalAbove "above normal"
 #define MSGTR_PREFERENCES_PriorityNormalBelow "below normal"
-#define MSGTR_PREFERENCES_VideoInSubwin "Display videos in the sub window (DirectX only)"
+#define MSGTR_PREFERENCES_ShowInVideoWin "Display in the video window (DirectX only)"
 
 
 // ======================= video output drivers ========================
