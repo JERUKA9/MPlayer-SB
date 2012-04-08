@@ -17,6 +17,7 @@ do_avconv $raw_ref -f image2 -vcodec pgmyuv -i $raw_src -an -f rawvideo
 fi
 if [ -n "$do_aref" ]; then
 do_avconv $pcm_ref -b 128k -ac 2 -ar 44100 -f s16le -i $pcm_src -f wav
+do_avconv $pcm_ref_1ch -b 128k -ac 1 -ar 16000 -f s16le -i $pcm_src_1ch -f wav
 fi
 
 if [ -n "$do_cljr" ] ; then
@@ -438,6 +439,22 @@ if [ -n "$do_flac" ] ; then
 do_audio_encoding flac.flac "-acodec flac -compression_level 2"
 do_audio_decoding
 fi
+
+if [ -n "$do_dca" ] ; then
+do_audio_encoding dca.dts "-strict -2 -acodec dca"
+# decoding is not bit-exact, so skip md5 of decoded file
+do_audio_decoding_nomd5
+$tiny_psnr $pcm_dst $pcm_ref 2 1920
+fi
+
+if [ -n "$do_ra144" ] ; then
+do_audio_encoding ra144.ra "-ac 1 -acodec real_144"
+do_audio_decoding "-ac 2"
+$tiny_psnr $pcm_dst $pcm_ref 2 640
+fi
+
+# AAC and nellymoser are not bit-exact across platforms,
+# they were moved to enc_dec_pcm tests instead.
 
 #if [ -n "$do_vorbis" ] ; then
 # vorbis

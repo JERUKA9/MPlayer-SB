@@ -251,6 +251,7 @@ enum CodecID {
     CODEC_ID_ZEROCODEC,
     CODEC_ID_Y41P       = MKBETAG('Y','4','1','P'),
     CODEC_ID_ESCAPE130  = MKBETAG('E','1','3','0'),
+    CODEC_ID_EXR        = MKBETAG('0','E','X','R'),
     CODEC_ID_AVRP       = MKBETAG('A','V','R','P'),
 
     CODEC_ID_G2M        = MKBETAG( 0 ,'G','2','M'),
@@ -413,6 +414,7 @@ enum CodecID {
     CODEC_ID_DVB_TELETEXT,
     CODEC_ID_SRT,
     CODEC_ID_MICRODVD   = MKBETAG('m','D','V','D'),
+    CODEC_ID_EIA_608    = MKBETAG('c','6','0','8'),
 
     /* other specific kind of codecs (generally used for attachments) */
     CODEC_ID_FIRST_UNKNOWN = 0x18000,           ///< A dummy ID pointing at the start of various fake codecs.
