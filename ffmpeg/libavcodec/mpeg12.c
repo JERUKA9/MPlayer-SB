@@ -1635,6 +1635,12 @@ static int mpeg_field_start(MpegEncContext *s, const uint8_t *buf, int buf_size)
             return -1;
         }
 
+        if (s->avctx->hwaccel &&
+            (s->avctx->slice_flags & SLICE_FLAG_ALLOW_FIELD)) {
+            if (s->avctx->hwaccel->end_frame(s->avctx) < 0)
+                av_log(avctx, AV_LOG_ERROR, "hardware accelerator failed to decode first field\n");
+        }
+
         for (i = 0; i < 4; i++) {
             s->current_picture.f.data[i] = s->current_picture_ptr->f.data[i];
             if (s->picture_structure == PICT_BOTTOM_FIELD) {
@@ -1670,7 +1676,6 @@ static int mpeg_decode_slice(MpegEncContext *s, int mb_y,
                              const uint8_t **buf, int buf_size)
 {
     AVCodecContext *avctx = s->avctx;
-    const int lowres      = s->avctx->lowres;
     const int field_pic   = s->picture_structure != PICT_FRAME;
 
     s->resync_mb_x =
@@ -1791,14 +1796,14 @@ static int mpeg_decode_slice(MpegEncContext *s, int mb_y,
             }
         }
 
-        s->dest[0] += 16 >> lowres;
-        s->dest[1] +=(16 >> lowres) >> s->chroma_x_shift;
-        s->dest[2] +=(16 >> lowres) >> s->chroma_x_shift;
+        s->dest[0] += 16;
+        s->dest[1] += 16 >> s->chroma_x_shift;
+        s->dest[2] += 16 >> s->chroma_x_shift;
 
         ff_MPV_decode_mb(s, s->block);
 
         if (++s->mb_x >= s->mb_width) {
-            const int mb_size = 16 >> s->avctx->lowres;
+            const int mb_size = 16;
 
             ff_draw_horiz_band(s, mb_size*(s->mb_y >> field_pic), mb_size);
             ff_MPV_report_decode_progress(s);
@@ -2283,6 +2288,7 @@ static int mpeg_decode_frame(AVCodecContext *avctx,
 
     if (avctx->extradata && !avctx->frame_number) {
         int ret = decode_chunks(avctx, picture, data_size, avctx->extradata, avctx->extradata_size);
+        *data_size = 0;
         if (ret < 0 && (avctx->err_recognition & AV_EF_EXPLODE))
             return ret;
     }
@@ -2572,7 +2578,6 @@ AVCodec ff_mpeg1video_decoder = {
                              CODEC_CAP_TRUNCATED | CODEC_CAP_DELAY |
                              CODEC_CAP_SLICE_THREADS,
     .flush                 = flush,
-    .max_lowres            = 3,
     .long_name             = NULL_IF_CONFIG_SMALL("MPEG-1 video"),
     .update_thread_context = ONLY_IF_THREADS_ENABLED(mpeg_decode_update_thread_context)
 };
@@ -2589,7 +2594,6 @@ AVCodec ff_mpeg2video_decoder = {
                       CODEC_CAP_TRUNCATED | CODEC_CAP_DELAY |
                       CODEC_CAP_SLICE_THREADS,
     .flush          = flush,
-    .max_lowres     = 3,
     .long_name      = NULL_IF_CONFIG_SMALL("MPEG-2 video"),
     .profiles       = NULL_IF_CONFIG_SMALL(mpeg2_video_profiles),
 };

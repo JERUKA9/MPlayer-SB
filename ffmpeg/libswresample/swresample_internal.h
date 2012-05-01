@@ -30,6 +30,7 @@ typedef struct AudioData{
     int bps;                    ///< bytes per sample
     int count;                  ///< number of samples
     int planar;                 ///< 1 if planar audio, 0 otherwise
+    enum AVSampleFormat fmt;    ///< sample format
 } AudioData;
 
 struct SwrContext {
@@ -37,7 +38,7 @@ struct SwrContext {
     int log_level_offset;                           ///< logging level offset
     void *log_ctx;                                  ///< parent logging context
     enum AVSampleFormat  in_sample_fmt;             ///< input sample format
-    enum AVSampleFormat int_sample_fmt;             ///< internal sample format (AV_SAMPLE_FMT_FLT or AV_SAMPLE_FMT_S16)
+    enum AVSampleFormat int_sample_fmt;             ///< internal sample format (AV_SAMPLE_FMT_FLTP or AV_SAMPLE_FMT_S16P)
     enum AVSampleFormat out_sample_fmt;             ///< output sample format
     int64_t  in_ch_layout;                          ///< input channel layout
     int64_t out_ch_layout;                          ///< output channel layout
@@ -49,8 +50,14 @@ struct SwrContext {
     float rematrix_volume;                          ///< rematrixing volume coefficient
     const int *channel_map;                         ///< channel index (or -1 if muted channel) map
     int used_ch_count;                              ///< number of used input channels (mapped channel count if channel_map, otherwise in.ch_count)
+    enum SwrDitherType dither_method;
+    int dither_pos;
+    float dither_scale;
+    int filter_size;                                /**< length of each FIR filter in the resampling filterbank relative to the cutoff frequency */
+    int phase_shift;                                /**< log2 of the number of entries in the resampling polyphase filterbank */
+    int linear_interp;                              /**< if 1 then the resampling FIR filter will be linearly interpolated */
+    double cutoff;                                  /**< resampling cutoff frequency. 1.0 corresponds to half the output sample rate */
 
-    int int_bps;                                    ///< internal bytes per sample
     int resample_first;                             ///< 1 if resampling must come first, 0 if rematrixing
     int rematrix;                                   ///< flag to indicate if rematrixing is needed (basically if input and output layouts mismatch)
     int rematrix_custom;                            ///< flag to indicate that a custom matrix has been defined
@@ -61,6 +68,7 @@ struct SwrContext {
     AudioData preout;                               ///< pre-output audio data: used for rematrix/resample
     AudioData out;                                  ///< converted output audio data
     AudioData in_buffer;                            ///< cached audio data (convert and resample purpose)
+    AudioData dither;                               ///< noise used for dithering
     int in_buffer_index;                            ///< cached buffer position
     int in_buffer_count;                            ///< cached buffer length
     int resample_in_constraint;                     ///< 1 if the input end was reach before the output end, 0 otherwise
@@ -78,13 +86,23 @@ struct SwrContext {
     /* TODO: callbacks for ASM optimizations */
 };
 
-struct ResampleContext *swri_resample_init(struct ResampleContext *, int out_rate, int in_rate, int filter_size, int phase_shift, int linear, double cutoff);
+struct ResampleContext *swri_resample_init(struct ResampleContext *, int out_rate, int in_rate, int filter_size, int phase_shift, int linear, double cutoff, enum AVSampleFormat);
 void swri_resample_free(struct ResampleContext **c);
 int swri_multiple_resample(struct ResampleContext *c, AudioData *dst, int dst_size, AudioData *src, int src_size, int *consumed);
 void swri_resample_compensate(struct ResampleContext *c, int sample_delta, int compensation_distance);
-int swri_resample(struct ResampleContext *c, int16_t *dst, const int16_t *src, int *consumed, int src_size, int dst_size, int update_ctx);
+int swri_resample_int16(struct ResampleContext *c, int16_t *dst, const int16_t *src, int *consumed, int src_size, int dst_size, int update_ctx);
+int swri_resample_int32(struct ResampleContext *c, int32_t *dst, const int32_t *src, int *consumed, int src_size, int dst_size, int update_ctx);
+int swri_resample_float(struct ResampleContext *c, float   *dst, const float   *src, int *consumed, int src_size, int dst_size, int update_ctx);
+int swri_resample_double(struct ResampleContext *c,double  *dst, const double  *src, int *consumed, int src_size, int dst_size, int update_ctx);
 
 int swri_rematrix_init(SwrContext *s);
 int swri_rematrix(SwrContext *s, AudioData *out, AudioData *in, int len, int mustcopy);
+void swri_sum2(enum AVSampleFormat format, void *dst, const void *src0, const void *src1, float coef0, float coef1, int len);
 
+void swri_get_dither(SwrContext *s, void *dst, int len, unsigned seed, enum AVSampleFormat out_fmt, enum AVSampleFormat in_fmt);
+
+void swri_audio_convert_init_x86(struct AudioConvert *ac,
+                                 enum AVSampleFormat out_fmt,
+                                 enum AVSampleFormat in_fmt,
+                                 int channels);
 #endif
