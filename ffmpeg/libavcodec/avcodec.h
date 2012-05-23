@@ -263,6 +263,7 @@ enum CodecID {
     CODEC_ID_AVRP       = MKBETAG('A','V','R','P'),
 
     CODEC_ID_G2M        = MKBETAG( 0 ,'G','2','M'),
+    CODEC_ID_AVUI       = MKBETAG('A','V','U','I'),
     CODEC_ID_AYUV       = MKBETAG('A','Y','U','V'),
     CODEC_ID_V308       = MKBETAG('V','3','0','8'),
     CODEC_ID_V408       = MKBETAG('V','4','0','8'),
@@ -423,6 +424,7 @@ enum CodecID {
     CODEC_ID_SRT,
     CODEC_ID_MICRODVD   = MKBETAG('m','D','V','D'),
     CODEC_ID_EIA_608    = MKBETAG('c','6','0','8'),
+    CODEC_ID_JACOSUB    = MKBETAG('J','S','U','B'),
 
     /* other specific kind of codecs (generally used for attachments) */
     CODEC_ID_FIRST_UNKNOWN = 0x18000,           ///< A dummy ID pointing at the start of various fake codecs.
@@ -1242,9 +1244,25 @@ typedef struct AVFrame {
     uint8_t motion_subsample_log2;
 
     /**
+     * Sample rate of the audio data.
+     *
+     * - encoding: unused
+     * - decoding: read by user
+     */
+    int sample_rate;
+
+    /**
+     * Channel layout of the audio data.
+     *
+     * - encoding: unused
+     * - decoding: read by user.
+     */
+    uint64_t channel_layout;
+
+    /**
      * frame timestamp estimated using various heuristics, in stream time base
      * Code outside libavcodec should access this field using:
-     *  av_opt_ptr(avcodec_get_frame_class(), frame, "best_effort_timestamp");
+     * av_frame_get_best_effort_timestamp(frame)
      * - encoding: unused
      * - decoding: set by libavcodec, read by user.
      */
@@ -1253,31 +1271,27 @@ typedef struct AVFrame {
     /**
      * reordered pos from the last AVPacket that has been input into the decoder
      * Code outside libavcodec should access this field using:
-     *  av_opt_ptr(avcodec_get_frame_class(), frame, "pkt_pos");
+     * av_frame_get_pkt_pos(frame)
      * - encoding: unused
      * - decoding: Read by user.
      */
     int64_t pkt_pos;
 
-    /**
-     * channel layout of the audio frame
-     * - encoding: unused
-     * - decoding: read by user.
-     * Code outside libavcodec should access this field using:
-     * av_opt_ptr(avcodec_get_frame_class(), frame, "channel_layout")
-     */
-    int64_t channel_layout;
-
-    /**
-     * sample rate of the audio frame
-     * - encoding: unused
-     * - decoding: read by user.
-     * Code outside libavcodec should access this field using:
-     * av_opt_ptr(avcodec_get_frame_class(), frame, "sample_rate")
-     */
-    int sample_rate;
-
 } AVFrame;
+
+/**
+ * Accessors for some AVFrame fields.
+ * The position of these field in the structure is not part of the ABI,
+ * they should not be accessed directly outside libavcodec.
+ */
+int64_t av_frame_get_best_effort_timestamp(const AVFrame *frame);
+int64_t av_frame_get_pkt_pos              (const AVFrame *frame);
+int64_t av_frame_get_channel_layout       (const AVFrame *frame);
+int     av_frame_get_sample_rate          (const AVFrame *frame);
+void    av_frame_set_best_effort_timestamp(AVFrame *frame, int64_t val);
+void    av_frame_set_pkt_pos              (AVFrame *frame, int64_t val);
+void    av_frame_set_channel_layout       (AVFrame *frame, int64_t val);
+void    av_frame_set_sample_rate          (AVFrame *frame, int     val);
 
 struct AVCodecInternal;
 
@@ -2707,7 +2721,7 @@ typedef struct AVCodecContext {
 
     /**
      * Set by the client if its custom get_buffer() callback can be called
-     * from another thread, which allows faster multithreaded decoding.
+     * synchronously from another thread, which allows faster multithreaded decoding.
      * draw_horiz_band() will be called from other threads regardless of this setting.
      * Ignored if the default get_buffer() is used.
      * - encoding: Set by user.
@@ -3793,6 +3807,7 @@ typedef struct AVCodecParserContext {
 #define PARSER_FLAG_ONCE                      0x0002
 /// Set if the parser has a valid file offset
 #define PARSER_FLAG_FETCHED_OFFSET            0x0004
+#define PARSER_FLAG_USE_CODEC_TS              0x1000
 
     int64_t offset;      ///< byte offset from starting packet start
     int64_t cur_frame_end[AV_PARSER_PTS_NB];
@@ -4030,15 +4045,11 @@ int attribute_deprecated avcodec_encode_audio(AVCodecContext *avctx,
  * @param[in] frame AVFrame containing the raw audio data to be encoded.
  *                  May be NULL when flushing an encoder that has the
  *                  CODEC_CAP_DELAY capability set.
- *                  There are 2 codec capabilities that affect the allowed
- *                  values of frame->nb_samples.
- *                  If CODEC_CAP_SMALL_LAST_FRAME is set, then only the final
- *                  frame may be smaller than avctx->frame_size, and all other
- *                  frames must be equal to avctx->frame_size.
  *                  If CODEC_CAP_VARIABLE_FRAME_SIZE is set, then each frame
  *                  can have any number of samples.
- *                  If neither is set, frame->nb_samples must be equal to
- *                  avctx->frame_size for all frames.
+ *                  If it is not set, frame->nb_samples must be equal to
+ *                  avctx->frame_size for all frames except the last.
+ *                  The final frame may be smaller than avctx->frame_size.
  * @param[out] got_packet_ptr This field is set to 1 by libavcodec if the
  *                            output packet is non-empty, and to 0 if it is
  *                            empty. If the function returns an error, the

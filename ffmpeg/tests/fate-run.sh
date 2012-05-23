@@ -60,9 +60,17 @@ stddev(){
     do_tiny_psnr "$1" "$2" stddev
 }
 
+oneline(){
+    printf '%s\n' "$1" | diff -u -b - "$2"
+}
+
 run(){
     test "${V:-0}" -gt 0 && echo "$target_exec" $target_path/"$@" >&3
     $target_exec $target_path/"$@"
+}
+
+probefmt(){
+    run ffprobe -show_format_entry format_name -print_format default=nw=1:nk=1 -v 0 "$@"
 }
 
 avconv(){
@@ -151,11 +159,12 @@ if [ $err -gt 128 ]; then
     test "${sig}" = "${sig%[!A-Za-z]*}" || unset sig
 fi
 
-if test -e "$ref"; then
+if test -e "$ref" || test $cmp = "oneline" ; then
     case $cmp in
-        diff)   diff -u -w "$ref" "$outfile"            >$cmpfile ;;
+        diff)   diff -u -b "$ref" "$outfile"            >$cmpfile ;;
         oneoff) oneoff     "$ref" "$outfile"            >$cmpfile ;;
         stddev) stddev     "$ref" "$outfile"            >$cmpfile ;;
+        oneline)oneline    "$ref" "$outfile"            >$cmpfile ;;
         null)   cat               "$outfile"            >$cmpfile ;;
     esac
     cmperr=$?

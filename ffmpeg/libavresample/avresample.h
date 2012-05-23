@@ -39,7 +39,7 @@ typedef struct AVAudioResampleContext AVAudioResampleContext;
 
 /** Mixing Coefficient Types */
 enum AVMixCoeffType {
-    AV_MIX_COEFF_TYPE_Q6,   /** 16-bit 10.6 fixed-point                     */
+    AV_MIX_COEFF_TYPE_Q8,   /** 16-bit 8.8 fixed-point                      */
     AV_MIX_COEFF_TYPE_Q15,  /** 32-bit 17.15 fixed-point                    */
     AV_MIX_COEFF_TYPE_FLT,  /** floating-point                              */
     AV_MIX_COEFF_TYPE_NB,   /** Number of coeff types. Not part of ABI      */
@@ -274,7 +274,8 @@ int avresample_available(AVAudioResampleContext *avr);
  * @see avresample_convert()
  *
  * @param avr         audio resample context
- * @param output      output data pointers
+ * @param output      output data pointers. May be NULL, in which case
+ *                    nb_samples of data is discarded from output FIFO.
  * @param nb_samples  number of samples to read from the FIFO
  * @return            the number of samples written to output
  */

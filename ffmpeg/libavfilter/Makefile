@@ -1,22 +1,34 @@
 include $(SUBDIR)../config.mak
 
 NAME = avfilter
-FFLIBS = avutil
+FFLIBS = avutil swscale
+FFLIBS-$(CONFIG_ASYNCTS_FILTER) += avresample
+FFLIBS-$(CONFIG_RESAMPLE_FILTER) += avresample
 
 FFLIBS-$(CONFIG_ACONVERT_FILTER)             += swresample
 FFLIBS-$(CONFIG_AMOVIE_FILTER)               += avformat avcodec
 FFLIBS-$(CONFIG_ARESAMPLE_FILTER)            += swresample
 FFLIBS-$(CONFIG_MOVIE_FILTER)                += avformat avcodec
 FFLIBS-$(CONFIG_PAN_FILTER)                  += swresample
-FFLIBS-$(CONFIG_REMOVELOGO_FILTER)           += swscale avformat avcodec
-FFLIBS-$(CONFIG_SCALE_FILTER)                += swscale
+FFLIBS-$(CONFIG_REMOVELOGO_FILTER)           += avformat avcodec
 FFLIBS-$(CONFIG_MP_FILTER)                   += avcodec postproc
 
-HEADERS = asrc_abuffer.h avcodec.h avfilter.h avfiltergraph.h buffersink.h version.h vsrc_buffer.h
+HEADERS = asrc_abuffer.h                                                \
+          avcodec.h                                                     \
+          avfilter.h                                                    \
+          avfiltergraph.h                                               \
+          buffersink.h                                                  \
+          buffersrc.h                                                   \
+          version.h                                                     \
+          vsrc_buffer.h                                                 \
 
 OBJS = allfilters.o                                                     \
+       audio.o                                                          \
        avfilter.o                                                       \
        avfiltergraph.o                                                  \
+       buffer.o                                                         \
+       buffersink.o                                                     \
+       buffersrc.o                                                      \
        defaults.o                                                       \
        drawutils.o                                                      \
        formats.o                                                        \
@@ -24,6 +36,9 @@ OBJS = allfilters.o                                                     \
        graphparser.o                                                    \
        src_buffer.o                                                     \
        transform.o                                                      \
+       vf_scale.o                                                       \
+       video.o                                                          \
+
 
 OBJS-$(CONFIG_AVCODEC)                       += avcodec.o
 OBJS-$(CONFIG_AVFORMAT)                      += lavfutils.o
@@ -35,10 +50,12 @@ OBJS-$(CONFIG_AMERGE_FILTER)                 += af_amerge.o
 OBJS-$(CONFIG_ANULL_FILTER)                  += af_anull.o
 OBJS-$(CONFIG_ARESAMPLE_FILTER)              += af_aresample.o
 OBJS-$(CONFIG_ASHOWINFO_FILTER)              += af_ashowinfo.o
-OBJS-$(CONFIG_ASPLIT_FILTER)                 += af_asplit.o
+OBJS-$(CONFIG_ASPLIT_FILTER)                 += split.o
 OBJS-$(CONFIG_ASTREAMSYNC_FILTER)            += af_astreamsync.o
+OBJS-$(CONFIG_ASYNCTS_FILTER)                += af_asyncts.o
 OBJS-$(CONFIG_EARWAX_FILTER)                 += af_earwax.o
 OBJS-$(CONFIG_PAN_FILTER)                    += af_pan.o
+OBJS-$(CONFIG_RESAMPLE_FILTER)               += af_resample.o
 OBJS-$(CONFIG_SILENCEDETECT_FILTER)          += af_silencedetect.o
 OBJS-$(CONFIG_VOLUME_FILTER)                 += af_volume.o
 
@@ -66,6 +83,7 @@ OBJS-$(CONFIG_FADE_FILTER)                   += vf_fade.o
 OBJS-$(CONFIG_FIELDORDER_FILTER)             += vf_fieldorder.o
 OBJS-$(CONFIG_FIFO_FILTER)                   += vf_fifo.o
 OBJS-$(CONFIG_FORMAT_FILTER)                 += vf_format.o
+OBJS-$(CONFIG_FPS_FILTER)                    += vf_fps.o
 OBJS-$(CONFIG_FREI0R_FILTER)                 += vf_frei0r.o
 OBJS-$(CONFIG_GRADFUN_FILTER)                += vf_gradfun.o
 OBJS-$(CONFIG_HFLIP_FILTER)                  += vf_hflip.o
@@ -83,7 +101,6 @@ OBJS-$(CONFIG_OVERLAY_FILTER)                += vf_overlay.o
 OBJS-$(CONFIG_PAD_FILTER)                    += vf_pad.o
 OBJS-$(CONFIG_PIXDESCTEST_FILTER)            += vf_pixdesctest.o
 OBJS-$(CONFIG_REMOVELOGO_FILTER)             += bbox.o lswsutils.o lavfutils.o vf_removelogo.o
-OBJS-$(CONFIG_SCALE_FILTER)                  += vf_scale.o
 OBJS-$(CONFIG_SELECT_FILTER)                 += vf_select.o
 OBJS-$(CONFIG_SETDAR_FILTER)                 += vf_aspect.o
 OBJS-$(CONFIG_SETFIELD_FILTER)               += vf_setfield.o
@@ -92,7 +109,7 @@ OBJS-$(CONFIG_SETSAR_FILTER)                 += vf_aspect.o
 OBJS-$(CONFIG_SETTB_FILTER)                  += vf_settb.o
 OBJS-$(CONFIG_SHOWINFO_FILTER)               += vf_showinfo.o
 OBJS-$(CONFIG_SLICIFY_FILTER)                += vf_slicify.o
-OBJS-$(CONFIG_SPLIT_FILTER)                  += vf_split.o
+OBJS-$(CONFIG_SPLIT_FILTER)                  += split.o
 OBJS-$(CONFIG_SUPER2XSAI_FILTER)             += vf_super2xsai.o
 OBJS-$(CONFIG_SWAPUV_FILTER)                 += vf_swapuv.o
 OBJS-$(CONFIG_THUMBNAIL_FILTER)              += vf_thumbnail.o
@@ -155,7 +172,6 @@ OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_qp.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_rectangle.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_rotate.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_sab.o
-OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_screenshot.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_smartblur.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_softpulldown.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_softskip.o
@@ -173,4 +189,5 @@ OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/pullup.o
 
 TESTPROGS = drawutils formats
 
-TOOLS = graph2dot lavfi-showfiltfmts
+TOOLS = graph2dot                                                       \
+        lavfi-showfiltfmts                                              \

@@ -723,7 +723,7 @@ static int init_slice_state(FFV1Context *f, FFV1Context *fs){
         if (fs->ac>1){
             //FIXME only redo if state_transition changed
             for(j=1; j<256; j++){
-                fs->c.one_state [    j]= fs->state_transition[j];
+                fs->c.one_state [    j]= f->state_transition[j];
                 fs->c.zero_state[256-j]= 256-fs->c.one_state [j];
             }
         }
@@ -964,6 +964,7 @@ static av_cold int encode_init(AVCodecContext *avctx)
         s->colorspace= 0;
         break;
     case PIX_FMT_YUVA444P:
+    case PIX_FMT_YUVA422P:
     case PIX_FMT_YUVA420P:
         s->chroma_planes= 1;
         s->colorspace= 0;
@@ -1804,6 +1805,7 @@ static int read_header(FFV1Context *f){
         }else if(f->avctx->bits_per_raw_sample<=8 && f->transparency){
             switch(16*f->chroma_h_shift + f->chroma_v_shift){
             case 0x00: f->avctx->pix_fmt= PIX_FMT_YUVA444P; break;
+            case 0x10: f->avctx->pix_fmt= PIX_FMT_YUVA422P; break;
             case 0x11: f->avctx->pix_fmt= PIX_FMT_YUVA420P; break;
             default:
                 av_log(f->avctx, AV_LOG_ERROR, "format not supported\n");
@@ -1946,7 +1948,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     FFV1Context *f = avctx->priv_data;
     RangeCoder * const c= &f->slice_context[0]->c;
     AVFrame * const p= &f->picture;
-    int bytes_read, i;
+    int i;
     uint8_t keystate= 128;
     const uint8_t *buf_p;
 

@@ -270,6 +270,13 @@ ppc() {
   esac
 }
 
+sparc() {
+  case "$host_arch" in
+    sparc*) return 0;;
+    *) return 1;;
+  esac
+}
+
 alpha() {
   case "$host_arch" in
     alpha*) return 0;;
@@ -384,6 +391,7 @@ Optional features:
                          parsing [disabled]
   --enable-macosx-bundle enable Mac OS X bundle file locations [autodetect]
   --disable-inet6        disable IPv6 support [autodetect]
+  --disable-sctp         disable SCTP support [autodetect]
   --disable-gethostbyname2  gethostbyname2 part of the C library [autodetect]
   --disable-ftp          disable FTP support [enabled]
   --disable-vstream      disable TiVo vstream client support [autodetect]
@@ -857,6 +865,7 @@ _freetypeconfig='freetype-config'
 _fribidi=auto
 _enca=auto
 _inet6=auto
+_sctp=auto
 _gethostbyname2=auto
 _ftp=auto
 _musepack=no
@@ -1380,6 +1389,9 @@ for ac_option do
   --enable-inet6)       _inet6=yes      ;;
   --disable-inet6)      _inet6=no       ;;
 
+  --enable-sctp)        _sctp=yes       ;;
+  --disable-sctp)       _sctp=no        ;;
+
   --enable-gethostbyname2)      _gethostbyname2=yes     ;;
   --disable-gethostbyname2)     _gethostbyname2=no      ;;
 
@@ -1510,8 +1522,7 @@ if test -z "$_target" ; then
       ia64) host_arch=ia64 ;;
       macppc|ppc*|Power*) host_arch=ppc ;;
       alpha) host_arch=alpha ;;
-      sparc) host_arch=sparc ;;
-      sparc64) host_arch=sparc64 ;;
+      sun4*|sparc*) host_arch=sparc ;;
       parisc*|hppa*|9000*) host_arch=hppa ;;
       arm*|zaurus|cats) host_arch=arm ;;
       sh3|sh4|sh4a) host_arch=sh ;;
@@ -1719,6 +1730,9 @@ if x86 ; then
 fi
 if ppc ; then
   cc_check && host_arch=ppc64 || host_arch=ppc
+fi
+if sparc ; then
+  cc_check && host_arch=sparc64 || host_arch=sparc
 fi
 fi
 
@@ -3435,7 +3449,7 @@ else
   def_network='#define CONFIG_NETWORK 0'
   def_networking='#undef CONFIG_NETWORKING'
   def_rtpdec='#define CONFIG_RTPDEC 0'
-  libavprotocols=$(echo $libavprotocols | sed -e s/GOPHER_PROTOCOL// -e s/HTTP_PROTOCOL// -e s/RTMP_PROTOCOL// -e s/RTP_PROTOCOL// -e s/TCP_PROTOCOL// -e s/UDP_PROTOCOL// -e s/MMSH_PROTOCOL// -e s/MMST_PROTOCOL//)
+  libavprotocols=$(echo $libavprotocols | sed -e s/GOPHER_PROTOCOL// -e s/HTTP_PROTOCOL// -e s/RTMP_PROTOCOL// -e s/RTP_PROTOCOL// -e s/TCP_PROTOCOL// -e s/UDP_PROTOCOL// -e s/MMSH_PROTOCOL// -e s/MMST_PROTOCOL// -e s/SCTP_PROTOCOL//)
   libavdemuxers=$(echo $libavdemuxers | sed -e s/RTSP_DEMUXER// -e s/SDP_DEMUXER// -e s/SAP_DEMUXER// -e s/RTP_DEMUXER//)
 fi
 echores "$networking"
@@ -3486,6 +3500,17 @@ else
 fi
 echores "$_gethostbyname2"
 
+echocheck "SCTP"
+if test "$_sctp" = auto ; then
+  _sctp=no
+  if header_check netinet/sctp.h; then
+    _sctp=yes
+  fi
+fi
+if test "$_sctp" = no ; then
+  libavprotocols=$(echo $libavprotocols | sed -e s/SCTP_PROTOCOL//)
+fi
+echores "$_sctp"
 
 echocheck "sys/poll.h"
 poll_h=no
@@ -5200,19 +5225,19 @@ int main(int argc, char *argv[]) {
 EOF
   _gl=no
   for ld_tmp in "" -lGL "-lGL -lXdamage" "-lGL $ld_pthread" ; do
-    if cc_check $ld_tmp ; then
+    if test "$_x11" = yes && cc_check $ld_tmp ; then
       _gl=yes
       _gl_x11=yes
       libs_mplayer="$libs_mplayer $ld_tmp $ld_dl"
       break
     fi
   done
-  if cc_check -DGL_EGL_X11 -lEGL ; then
+  if test "$_x11" = yes && cc_check -DGL_EGL_X11 -lEGL ; then
     _gl=yes
     _gl_egl_x11=yes
     libs_mplayer="$libs_mplayer -lEGL $ld_dl"
   fi
-  if cc_check -DGL_WIN32 -lopengl32 ; then
+  if win32 && cc_check -DGL_WIN32 -lopengl32 ; then
     _gl=yes
     _gl_win32=yes
     libs_mplayer="$libs_mplayer -lopengl32 -lgdi32"
@@ -5330,6 +5355,7 @@ echores "$_direct3d"
 echocheck "Directx"
 if test "$_directx" = auto ; then
   cat > $TMPC << EOF
+#include <windows.h>
 #include <ddraw.h>
 #include <dsound.h>
 int main(void) { return 0; }
@@ -6723,30 +6749,32 @@ if test "$_live" = auto  && test "$networking" = yes ; then
 #error Please upgrade to version 2006.03.03 or later of the "LIVE555 Streaming Media" libraries - available from <www.live555.com/liveMedia/>
 #endif
 #include "BasicUsageEnvironment.hh"
-int main(void) { BasicTaskScheduler::createNew(); return 0; }
+int main(void) { RTSPClient::createNew(*BasicUsageEnvironment::createNew(*BasicTaskScheduler::createNew()), 0, "", 0); return 0; }
 EOF
 
   _live=no
   for I in $extra_cflags "-I$_libdir/live" "-I/usr/lib/live" "-I/usr/lib64/live" "-I/usr/local/live" "-I/usr/local/lib/live" ; do
     _livelibdir=$(echo $I| sed s/-I//)
+    inc_tmp="-I$_livelibdir/liveMedia/include \
+             -I$_livelibdir/UsageEnvironment/include \
+             -I$_livelibdir/BasicUsageEnvironment/include \
+             -I$_livelibdir/groupsock/include"
+    ld_tmp="$_livelibdir/liveMedia/libliveMedia.a \
+            $_livelibdir/UsageEnvironment/libUsageEnvironment.a \
+            $_livelibdir/BasicUsageEnvironment/libBasicUsageEnvironment.a \
+            $_livelibdir/groupsock/libgroupsock.a \
+            -lstdc++ $ld_sock"
     test -e "$_livelibdir/BasicUsageEnvironment/libBasicUsageEnvironment.a" &&
-        cxx_check $I/liveMedia/include $I/UsageEnvironment/include $I/BasicUsageEnvironment/include $I/groupsock/include $_livelibdir/BasicUsageEnvironment/libBasicUsageEnvironment.a $_livelibdir/UsageEnvironment/libUsageEnvironment.a $_livelibdir/groupsock/libgroupsock.a $ld_sock &&
-      extra_ldflags="$_livelibdir/liveMedia/libliveMedia.a \
-                 $_livelibdir/UsageEnvironment/libUsageEnvironment.a \
-                 $_livelibdir/BasicUsageEnvironment/libBasicUsageEnvironment.a \
-                 $_livelibdir/groupsock/libgroupsock.a \
-                 $extra_ldflags  -lstdc++ $ld_sock" \
-      extra_cxxflags="-I$_livelibdir/liveMedia/include \
-                  -I$_livelibdir/UsageEnvironment/include \
-                  -I$_livelibdir/BasicUsageEnvironment/include \
-                  -I$_livelibdir/groupsock/include" &&
+        cxx_check $inc_tmp $ld_tmp &&
+      extra_ldflags="$ld_tmp $extra_ldflags" &&
+      extra_cxxflags="$inc_tmp" &&
       _live=yes && break
   done
   if test "$_live" != yes ; then
-      ld_tmp="-lliveMedia -lgroupsock -lBasicUsageEnvironment -lUsageEnvironment -lstdc++"
-      if cxx_check -I/usr/include/liveMedia -I/usr/include/UsageEnvironment -I/usr/include/BasicUsageEnvironment -I/usr/include/groupsock $ld_tmp; then
-          _live_dist=yes
-      fi
+      for ld_tmp in "-lliveMedia -lgroupsock -lBasicUsageEnvironment -lUsageEnvironment -lstdc++" "-lliveMedia_pic -lgroupsock_pic -lBasicUsageEnvironment_pic -lUsageEnvironment_pic -lstdc++" ; do
+          inc_tmp="-I/usr/include/liveMedia -I/usr/include/UsageEnvironment -I/usr/include/BasicUsageEnvironment -I/usr/include/groupsock"
+          cxx_check $inc_tmp $ld_tmp && _live_dist=yes && break
+      done
   fi
 fi
 if test "$_live" = yes && test "$networking" = yes; then
@@ -6758,7 +6786,7 @@ elif test "$_live_dist" = yes && test "$networking" = yes; then
   _live="yes"
   def_live='#define CONFIG_LIVE555 1'
   extra_ldflags="$extra_ldflags $ld_tmp"
-  extra_cxxflags="-I/usr/include/liveMedia -I/usr/include/UsageEnvironment -I/usr/include/BasicUsageEnvironment -I/usr/include/groupsock"
+  extra_cxxflags="$inc_tmp"
  inputmodules="live555 $inputmodules"
 else
   _live=no

@@ -618,7 +618,7 @@ static int flv_read_packet(AVFormatContext *s, AVPacket *pkt)
             if (flv->wrong_dts)
                 dts = AV_NOPTS_VALUE;
         }
-        if (type == 0 && !st->codec->extradata) {
+        if (type == 0 && (!st->codec->extradata || st->codec->codec_id == CODEC_ID_AAC)) {
             if (st->codec->extradata) {
                 if ((ret = flv_queue_extradata(flv, s->pb, stream_type, size)) < 0)
                     return ret;
@@ -653,12 +653,8 @@ static int flv_read_packet(AVFormatContext *s, AVPacket *pkt)
     }
 
     ret= av_get_packet(s->pb, pkt, size);
-    if (ret < 0) {
-        return AVERROR(EIO);
-    }
-    /* note: we need to modify the packet size here to handle the last
-       packet */
-    pkt->size = ret;
+    if (ret < 0)
+        return ret;
     pkt->dts = dts;
     pkt->pts = pts == AV_NOPTS_VALUE ? dts : pts;
     pkt->stream_index = st->index;

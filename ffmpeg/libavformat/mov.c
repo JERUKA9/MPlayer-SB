@@ -25,6 +25,7 @@
 //#define DEBUG
 //#define MOV_EXPORT_ALL_METADATA
 
+#include "libavutil/attributes.h"
 #include "libavutil/audioconvert.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/intfloat.h"
@@ -627,8 +628,9 @@ static int mov_read_dec3(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 static int mov_read_chan(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
     AVStream *st;
-    uint8_t version;
-    uint32_t flags, layout_tag, bitmap, num_descr, label_mask;
+    uint8_t av_unused version;
+    uint32_t av_unused flags;
+    uint32_t layout_tag, bitmap, num_descr, label_mask;
     int i;
 
     if (c->fc->nb_streams < 1)
@@ -653,9 +655,9 @@ static int mov_read_chan(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 
     label_mask = 0;
     for (i = 0; i < num_descr; i++) {
-        uint32_t av_unused label, cflags;
+        uint32_t label;
         label     = avio_rb32(pb);          // mChannelLabel
-        cflags    = avio_rb32(pb);          // mChannelFlags
+        avio_rb32(pb);                      // mChannelFlags
         avio_rl32(pb);                      // mCoordinates[0]
         avio_rl32(pb);                      // mCoordinates[1]
         avio_rl32(pb);                      // mCoordinates[2]
@@ -1004,6 +1006,11 @@ static int mov_read_jp2h(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     return mov_read_extradata(c, pb, atom, CODEC_ID_JPEG2000);
 }
 
+static int mov_read_aprg(MOVContext *c, AVIOContext *pb, MOVAtom atom)
+{
+    return mov_read_extradata(c, pb, atom, CODEC_ID_AVUI);
+}
+
 static int mov_read_wave(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
     AVStream *st;
@@ -1049,7 +1056,7 @@ static int mov_read_glbl(MOVContext *c, AVIOContext *pb, MOVAtom atom)
         return AVERROR_INVALIDDATA;
 
     if (atom.size >= 10) {
-        // Broken files created by legacy versions of Libav and FFmpeg will
+        // Broken files created by legacy versions of libavformat will
         // wrap a whole fiel atom inside of a glbl atom.
         unsigned size = avio_rb32(pb);
         unsigned type = avio_rl32(pb);
@@ -1545,6 +1552,9 @@ int ff_mov_read_stsd_entries(MOVContext *c, AVIOContext *pb, int entries)
         st->need_parsing = AVSTREAM_PARSE_FULL;
         break;
     case CODEC_ID_MPEG1VIDEO:
+        st->need_parsing = AVSTREAM_PARSE_FULL;
+        break;
+    case CODEC_ID_VC1:
         st->need_parsing = AVSTREAM_PARSE_FULL;
         break;
     default:
@@ -2583,6 +2593,7 @@ static int mov_read_chan2(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 }
 
 static const MOVParseTableEntry mov_default_parse_table[] = {
+{ MKTAG('A','P','R','G'), mov_read_aprg },
 { MKTAG('a','v','s','s'), mov_read_avss },
 { MKTAG('c','h','p','l'), mov_read_chpl },
 { MKTAG('c','o','6','4'), mov_read_stco },

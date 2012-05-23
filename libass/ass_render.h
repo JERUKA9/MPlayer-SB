@@ -134,6 +134,7 @@ typedef struct glyph_info {
     double fax, fay;            // text shearing
     double scale_x, scale_y;
     double border_x, border_y;
+    double hspacing;
     unsigned italic;
     unsigned bold;
     int flags;
@@ -174,6 +175,7 @@ typedef struct {
     int flags;                  // decoration flags (underline/strike-through)
 
     FT_Stroker stroker;
+    int stroker_radius;         // last stroker radius, for caching stroker objects
     int alignment;              // alignment overrides go here; if zero, style value will be used
     double frx, fry, frz;
     double fax, fay;            // text shearing
@@ -289,7 +291,7 @@ typedef struct {
     int ha, hb;                 // left and width
 } Segment;
 
-void reset_render_context(ASS_Renderer *render_priv);
+void reset_render_context(ASS_Renderer *render_priv, ASS_Style *style);
 void ass_free_images(ASS_Image *img);
 
 // XXX: this is actually in ass.c, includes should be fixed later on
