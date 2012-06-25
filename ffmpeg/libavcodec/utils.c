@@ -40,6 +40,7 @@
 #include "libavutil/opt.h"
 #include "imgconvert.h"
 #include "thread.h"
+#include "frame_thread_encoder.h"
 #include "audioconvert.h"
 #include "internal.h"
 #include "bytestream.h"
@@ -265,9 +266,11 @@ void ff_init_buffer_info(AVCodecContext *s, AVFrame *pic)
     if (s->pkt) {
         pic->pkt_pts = s->pkt->pts;
         pic->pkt_pos = s->pkt->pos;
+        pic->pkt_duration = s->pkt->duration;
     } else {
         pic->pkt_pts = AV_NOPTS_VALUE;
         pic->pkt_pos = -1;
+        pic->pkt_duration = 0;
     }
     pic->reordered_opaque= s->reordered_opaque;
     pic->sample_aspect_ratio = s->sample_aspect_ratio;
@@ -384,9 +387,11 @@ static int audio_get_buffer(AVCodecContext *avctx, AVFrame *frame)
     if (avctx->pkt) {
         frame->pkt_pts = avctx->pkt->pts;
         frame->pkt_pos = avctx->pkt->pos;
+        frame->pkt_duration = avctx->pkt->duration;
     } else {
         frame->pkt_pts = AV_NOPTS_VALUE;
         frame->pkt_pos = -1;
+        frame->pkt_duration = 0;
     }
 
     frame->reordered_opaque = avctx->reordered_opaque;
@@ -521,9 +526,11 @@ static int video_get_buffer(AVCodecContext *s, AVFrame *pic)
     if (s->pkt) {
         pic->pkt_pts = s->pkt->pts;
         pic->pkt_pos = s->pkt->pos;
+        pic->pkt_duration = s->pkt->duration;
     } else {
         pic->pkt_pts = AV_NOPTS_VALUE;
         pic->pkt_pos = -1;
+        pic->pkt_duration = 0;
     }
     pic->reordered_opaque= s->reordered_opaque;
     pic->sample_aspect_ratio = s->sample_aspect_ratio;
@@ -661,6 +668,7 @@ void avcodec_get_frame_defaults(AVFrame *pic){
     memset(pic, 0, sizeof(AVFrame));
 
     pic->pts = pic->pkt_dts = pic->pkt_pts = pic->best_effort_timestamp = AV_NOPTS_VALUE;
+    pic->pkt_duration = 0;
     pic->pkt_pos = -1;
     pic->key_frame= 1;
     pic->sample_aspect_ratio = (AVRational){0, 1};
@@ -682,6 +690,7 @@ AVFrame *avcodec_alloc_frame(void){
     void av_##name##_set_##field(str *s, type v) { s->field = v; }
 
 MAKE_ACCESSORS(AVFrame, frame, int64_t, best_effort_timestamp)
+MAKE_ACCESSORS(AVFrame, frame, int64_t, pkt_duration)
 MAKE_ACCESSORS(AVFrame, frame, int64_t, pkt_pos)
 MAKE_ACCESSORS(AVFrame, frame, int64_t, channel_layout)
 MAKE_ACCESSORS(AVFrame, frame, int,     sample_rate)
@@ -789,7 +798,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, AVCodec *codec, AVD
 
     if (codec->capabilities & CODEC_CAP_EXPERIMENTAL)
         if (avctx->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
-            av_log(avctx, AV_LOG_ERROR, "Codec is experimental but experimental codecs are not enabled, see -strict -2\n");
+            av_log(avctx, AV_LOG_ERROR, "Codec is experimental but experimental codecs are not enabled, try -strict -2\n");
             ret = -1;
             goto free_and_end;
         }
@@ -843,7 +852,14 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, AVCodec *codec, AVD
     if (!HAVE_THREADS)
         av_log(avctx, AV_LOG_WARNING, "Warning: not compiled with thread support, using thread emulation\n");
 
-    if (HAVE_THREADS && !avctx->thread_opaque) {
+    entangled_thread_counter--; //we will instanciate a few encoders thus kick the counter to prevent false detection of a problem
+    ret = ff_frame_thread_encoder_init(avctx);
+    entangled_thread_counter++;
+    if (ret < 0)
+        goto free_and_end;
+
+    if (HAVE_THREADS && !avctx->thread_opaque
+        && !(avctx->internal->frame_thread_encoder && (avctx->active_thread_type&FF_THREAD_FRAME))) {
         ret = ff_thread_init(avctx);
         if (ret < 0) {
             goto free_and_end;
@@ -875,7 +891,9 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, AVCodec *codec, AVD
             for (i = 0; avctx->codec->pix_fmts[i] != PIX_FMT_NONE; i++)
                 if (avctx->pix_fmt == avctx->codec->pix_fmts[i])
                     break;
-            if (avctx->codec->pix_fmts[i] == PIX_FMT_NONE) {
+            if (avctx->codec->pix_fmts[i] == PIX_FMT_NONE
+                && !((avctx->codec_id == CODEC_ID_MJPEG || avctx->codec_id == CODEC_ID_LJPEG)
+                     && avctx->strict_std_compliance <= FF_COMPLIANCE_UNOFFICIAL)) {
                 av_log(avctx, AV_LOG_ERROR, "Specified pix_fmt is not supported\n");
                 ret = AVERROR(EINVAL);
                 goto free_and_end;
@@ -921,7 +939,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, AVCodec *codec, AVD
     avctx->pts_correction_last_pts =
     avctx->pts_correction_last_dts = INT64_MIN;
 
-    if(avctx->codec->init && !(avctx->active_thread_type&FF_THREAD_FRAME)){
+    if(avctx->codec->init && (!(avctx->active_thread_type&FF_THREAD_FRAME) || avctx->internal->frame_thread_encoder)){
         ret = avctx->codec->init(avctx);
         if (ret < 0) {
             goto free_and_end;
@@ -1291,6 +1309,9 @@ int attribute_align_arg avcodec_encode_video2(AVCodecContext *avctx,
 
     *got_packet_ptr = 0;
 
+    if(avctx->internal->frame_thread_encoder && (avctx->active_thread_type&FF_THREAD_FRAME))
+        return ff_thread_video_encode_frame(avctx, avpkt, frame, got_packet_ptr);
+
     if (!(avctx->codec->capabilities & CODEC_CAP_DELAY) && !frame) {
         av_free_packet(avpkt);
         av_init_packet(avpkt);
@@ -1451,7 +1472,7 @@ int attribute_align_arg avcodec_decode_video2(AVCodecContext *avctx, AVFrame *pi
 
     *got_picture_ptr= 0;
     if((avctx->coded_width||avctx->coded_height) && av_image_check_size(avctx->coded_width, avctx->coded_height, 0, avctx))
-        return -1;
+        return AVERROR(EINVAL);
 
     if((avctx->codec->capabilities & CODEC_CAP_DELAY) || avpkt->size || (avctx->active_thread_type&FF_THREAD_FRAME)){
         int did_split = av_packet_split_side_data(&tmp);
@@ -1651,6 +1672,11 @@ av_cold int avcodec_close(AVCodecContext *avctx)
     }
 
     if (avcodec_is_open(avctx)) {
+        if (avctx->internal->frame_thread_encoder && avctx->thread_count > 1) {
+            entangled_thread_counter --;
+            ff_frame_thread_encoder_free(avctx);
+            entangled_thread_counter ++;
+        }
         if (HAVE_THREADS && avctx->thread_opaque)
             ff_thread_free(avctx);
         if (avctx->codec && avctx->codec->close)
@@ -1774,9 +1800,14 @@ size_t av_get_codec_tag_string(char *buf, size_t buf_size, unsigned int codec_ta
 {
     int i, len, ret = 0;
 
+#define IS_PRINT(x)                                               \
+    (((x) >= '0' && (x) <= '9') ||                                \
+     ((x) >= 'a' && (x) <= 'z') || ((x) >= 'A' && (x) <= 'Z') ||  \
+     ((x) == '.' || (x) == ' '))
+
     for (i = 0; i < 4; i++) {
         len = snprintf(buf, buf_size,
-                       isprint(codec_tag&0xFF) ? "%c" : "[%d]", codec_tag&0xFF);
+                       IS_PRINT(codec_tag&0xFF) ? "%c" : "[%d]", codec_tag&0xFF);
         buf      += len;
         buf_size  = buf_size > len ? buf_size - len : 0;
         ret      += len;
@@ -2123,6 +2154,11 @@ int av_get_audio_frame_duration(AVCodecContext *avctx, int frame_bytes)
             case 29: return 288;
             case 37: return 480;
             }
+        } else if (id == CODEC_ID_ILBC) {
+            switch (ba) {
+            case 38: return 160;
+            case 50: return 240;
+            }
         }
     }
 
@@ -2194,8 +2230,12 @@ int av_get_audio_frame_duration(AVCodecContext *avctx, int frame_bytes)
                 /* calc from frame_bytes, channels, and bits_per_coded_sample */
                 switch (avctx->codec_id) {
                 case CODEC_ID_PCM_DVD:
+                    if(bps<4)
+                        return 0;
                     return 2 * (frame_bytes / ((bps * 2 / 8) * ch));
                 case CODEC_ID_PCM_BLURAY:
+                    if(bps<4)
+                        return 0;
                     return frame_bytes / ((FFALIGN(ch, 2) * bps) / 8);
                 case CODEC_ID_S302M:
                     return 2 * (frame_bytes / ((bps + 4) / 4)) / ch;

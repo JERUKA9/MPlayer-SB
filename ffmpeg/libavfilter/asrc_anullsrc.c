@@ -1,4 +1,7 @@
 /*
+ * Copyright 2010 S.N. Hemanth Meenakshisundaram <smeenaks ucsd edu>
+ * Copyright 2010 Stefano Sabatini <stefano.sabatini-lala poste it>
+ *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -21,6 +24,7 @@
  * null audio source
  */
 
+#include "internal.h"
 #include "libavutil/audioconvert.h"
 #include "libavutil/opt.h"
 
@@ -50,16 +54,7 @@ static const AVOption anullsrc_options[]= {
     { NULL },
 };
 
-static const char *anullsrc_get_name(void *ctx)
-{
-    return "anullsrc";
-}
-
-static const AVClass anullsrc_class = {
-    "ANullSrcContext",
-    anullsrc_get_name,
-    anullsrc_options
-};
+AVFILTER_DEFINE_CLASS(anullsrc);
 
 static int init(AVFilterContext *ctx, const char *args, void *opaque)
 {

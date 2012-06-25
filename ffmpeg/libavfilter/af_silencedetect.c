@@ -28,6 +28,7 @@
 #include "audio.h"
 #include "formats.h"
 #include "avfilter.h"
+#include "internal.h"
 
 typedef struct {
     const AVClass *class;
@@ -48,16 +49,7 @@ static const AVOption silencedetect_options[] = {
     { NULL },
 };
 
-static const char *silencedetect_get_name(void *ctx)
-{
-    return "silencedetect";
-}
-
-static const AVClass silencedetect_class = {
-    .class_name = "SilenceDetectContext",
-    .item_name  = silencedetect_get_name,
-    .option     = silencedetect_options,
-};
+AVFILTER_DEFINE_CLASS(silencedetect);
 
 static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
 {
@@ -142,10 +134,10 @@ static int query_formats(AVFilterContext *ctx)
         return AVERROR(ENOMEM);
     ff_set_common_channel_layouts(ctx, layouts);
 
-    formats = avfilter_make_format_list(sample_fmts);
+    formats = ff_make_format_list(sample_fmts);
     if (!formats)
         return AVERROR(ENOMEM);
-    avfilter_set_common_sample_formats(ctx, formats);
+    ff_set_common_formats(ctx, formats);
 
     formats = ff_all_samplerates();
     if (!formats)

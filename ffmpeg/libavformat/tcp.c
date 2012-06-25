@@ -28,7 +28,6 @@
 #if HAVE_POLL_H
 #include <poll.h>
 #endif
-#include <sys/time.h>
 
 typedef struct TCPContext {
     int fd;
@@ -83,9 +82,23 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
 
     if (listen_socket) {
         int fd1;
+        int reuse = 1;
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
         ret = bind(fd, cur_ai->ai_addr, cur_ai->ai_addrlen);
-        listen(fd, 1);
+        if (ret) {
+            ret = ff_neterrno();
+            goto fail1;
+        }
+        ret = listen(fd, 1);
+        if (ret) {
+            ret = ff_neterrno();
+            goto fail1;
+        }
         fd1 = accept(fd, NULL, NULL);
+        if (fd1 < 0) {
+            ret = ff_neterrno();
+            goto fail1;
+        }
         closesocket(fd);
         fd = fd1;
         ff_socket_nonblock(fd, 1);
@@ -125,12 +138,15 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
         }
         /* test error */
         optlen = sizeof(ret);
-        getsockopt (fd, SOL_SOCKET, SO_ERROR, &ret, &optlen);
+        if (getsockopt (fd, SOL_SOCKET, SO_ERROR, &ret, &optlen))
+            ret = AVUNERROR(ff_neterrno());
         if (ret != 0) {
+            char errbuf[100];
+            ret = AVERROR(ret);
+            av_strerror(ret, errbuf, sizeof(errbuf));
             av_log(h, AV_LOG_ERROR,
                    "TCP connection to %s:%d failed: %s\n",
-                   hostname, port, strerror(ret));
-            ret = AVERROR(ret);
+                   hostname, port, errbuf);
             goto fail;
         }
     }

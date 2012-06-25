@@ -37,6 +37,7 @@ typedef struct {
     double ratio;
     struct SwrContext *swr;
     int64_t next_pts;
+    int req_fullfilled;
 } AResampleContext;
 
 static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
@@ -90,29 +91,29 @@ static int query_formats(AVFilterContext *ctx)
     AVFilterLink *inlink  = ctx->inputs[0];
     AVFilterLink *outlink = ctx->outputs[0];
 
-    AVFilterFormats        *in_formats      = avfilter_all_formats(AVMEDIA_TYPE_AUDIO);
+    AVFilterFormats        *in_formats      = ff_all_formats(AVMEDIA_TYPE_AUDIO);
     AVFilterFormats        *out_formats;
     AVFilterFormats        *in_samplerates  = ff_all_samplerates();
     AVFilterFormats        *out_samplerates;
     AVFilterChannelLayouts *in_layouts      = ff_all_channel_layouts();
     AVFilterChannelLayouts *out_layouts;
 
-    avfilter_formats_ref  (in_formats,      &inlink->out_formats);
-    avfilter_formats_ref  (in_samplerates,  &inlink->out_samplerates);
+    ff_formats_ref  (in_formats,      &inlink->out_formats);
+    ff_formats_ref  (in_samplerates,  &inlink->out_samplerates);
     ff_channel_layouts_ref(in_layouts,      &inlink->out_channel_layouts);
 
     if(out_rate > 0) {
-        out_samplerates = avfilter_make_format_list((int[]){ out_rate, -1 });
+        out_samplerates = ff_make_format_list((int[]){ out_rate, -1 });
     } else {
         out_samplerates = ff_all_samplerates();
     }
-    avfilter_formats_ref(out_samplerates, &outlink->in_samplerates);
+    ff_formats_ref(out_samplerates, &outlink->in_samplerates);
 
     if(out_format != AV_SAMPLE_FMT_NONE) {
-        out_formats = avfilter_make_format_list((int[]){ out_format, -1 });
+        out_formats = ff_make_format_list((int[]){ out_format, -1 });
     } else
-        out_formats = avfilter_make_all_formats(AVMEDIA_TYPE_AUDIO);
-    avfilter_formats_ref(out_formats, &outlink->in_formats);
+        out_formats = ff_all_formats(AVMEDIA_TYPE_AUDIO);
+    ff_formats_ref(out_formats, &outlink->in_formats);
 
     if(out_layout) {
         out_layouts = avfilter_make_format64_list((int64_t[]){ out_layout, -1 });
@@ -133,6 +134,7 @@ static int config_output(AVFilterLink *outlink)
     int out_rate;
     uint64_t out_layout;
     enum AVSampleFormat out_format;
+    char inchl_buf[128], outchl_buf[128];
 
     aresample->swr = swr_alloc_set_opts(aresample->swr,
                                         outlink->channel_layout, outlink->format, outlink->sample_rate,
@@ -156,8 +158,12 @@ static int config_output(AVFilterLink *outlink)
 
     aresample->ratio = (double)outlink->sample_rate / inlink->sample_rate;
 
-    av_log(ctx, AV_LOG_INFO, "r:%"PRId64"Hz -> r:%"PRId64"Hz\n",
-           inlink->sample_rate, outlink->sample_rate);
+    av_get_channel_layout_string(inchl_buf,  sizeof(inchl_buf),  -1, inlink ->channel_layout);
+    av_get_channel_layout_string(outchl_buf, sizeof(outchl_buf), -1, outlink->channel_layout);
+
+    av_log(ctx, AV_LOG_INFO, "chl:%s fmt:%s r:%dHz -> chl:%s fmt:%s r:%dHz\n",
+           inchl_buf,  av_get_sample_fmt_name(inlink->format),  inlink->sample_rate,
+           outchl_buf, av_get_sample_fmt_name(outlink->format), outlink->sample_rate);
     return 0;
 }
 
@@ -169,31 +175,9 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamplesref
     AVFilterLink *const outlink = inlink->dst->outputs[0];
     AVFilterBufferRef *outsamplesref = ff_get_audio_buffer(outlink, AV_PERM_WRITE, n_out);
 
-    n_out = swr_convert(aresample->swr, outsamplesref->extended_data, n_out,
-                                 (void *)insamplesref->extended_data, n_in);
-    if (n_out <= 0) {
-        avfilter_unref_buffer(outsamplesref);
-        avfilter_unref_buffer(insamplesref);
-        return;
-    }
 
     avfilter_copy_buffer_ref_props(outsamplesref, insamplesref);
 
-    outsamplesref->audio->sample_rate = outlink->sample_rate;
-    outsamplesref->audio->nb_samples  = n_out;
-
-#if 0
-    if(insamplesref->pts != AV_NOPTS_VALUE) {
-        aresample->next_pts =
-        outsamplesref->pts  =  av_rescale_q(insamplesref->pts, inlink->time_base, outlink->time_base)
-                             - swr_get_delay(aresample->swr, outlink->time_base.den);
-        av_assert0(outlink->time_base.num == 1);
-    } else{
-        outsamplesref->pts  = AV_NOPTS_VALUE; //aresample->next_pts;
-    }
-    if(aresample->next_pts != AV_NOPTS_VALUE)
-        aresample->next_pts += av_rescale_q(n_out, (AVRational){1 ,outlink->sample_rate}, outlink->time_base);
-#else
     if(insamplesref->pts != AV_NOPTS_VALUE) {
         int64_t inpts = av_rescale(insamplesref->pts, inlink->time_base.num * (int64_t)outlink->sample_rate * inlink->sample_rate, inlink->time_base.den);
         int64_t outpts= swr_next_pts(aresample->swr, inpts);
@@ -202,8 +186,20 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamplesref
     } else {
         outsamplesref->pts  = AV_NOPTS_VALUE;
     }
-#endif
+
+    n_out = swr_convert(aresample->swr, outsamplesref->extended_data, n_out,
+                                 (void *)insamplesref->extended_data, n_in);
+    if (n_out <= 0) {
+        avfilter_unref_buffer(outsamplesref);
+        avfilter_unref_buffer(insamplesref);
+        return;
+    }
+
+    outsamplesref->audio->sample_rate = outlink->sample_rate;
+    outsamplesref->audio->nb_samples  = n_out;
+
     ff_filter_samples(outlink, outsamplesref);
+    aresample->req_fullfilled= 1;
     avfilter_unref_buffer(insamplesref);
 }
 
@@ -212,7 +208,12 @@ static int request_frame(AVFilterLink *outlink)
     AVFilterContext *ctx = outlink->src;
     AResampleContext *aresample = ctx->priv;
     AVFilterLink *const inlink = outlink->src->inputs[0];
-    int ret = avfilter_request_frame(ctx->inputs[0]);
+    int ret;
+
+    aresample->req_fullfilled = 0;
+    do{
+        ret = ff_request_frame(ctx->inputs[0]);
+    }while(!aresample->req_fullfilled && ret>=0);
 
     if (ret == AVERROR_EOF) {
         AVFilterBufferRef *outsamplesref;

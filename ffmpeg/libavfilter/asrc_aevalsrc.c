@@ -66,7 +66,7 @@ typedef struct {
 
 #define OFFSET(x) offsetof(EvalContext, x)
 
-static const AVOption eval_options[]= {
+static const AVOption aevalsrc_options[]= {
     { "nb_samples",  "set the number of samples per requested frame", OFFSET(nb_samples),      AV_OPT_TYPE_INT,    {.dbl = 1024},    0,        INT_MAX },
     { "n",           "set the number of samples per requested frame", OFFSET(nb_samples),      AV_OPT_TYPE_INT,    {.dbl = 1024},    0,        INT_MAX },
     { "sample_rate", "set the sample rate",                           OFFSET(sample_rate_str), AV_OPT_TYPE_STRING, {.str = "44100"}, CHAR_MIN, CHAR_MAX },
@@ -78,16 +78,7 @@ static const AVOption eval_options[]= {
 {NULL},
 };
 
-static const char *eval_get_name(void *ctx)
-{
-    return "aevalsrc";
-}
-
-static const AVClass eval_class = {
-    "AEvalSrcContext",
-    eval_get_name,
-    eval_options
-};
+AVFILTER_DEFINE_CLASS(aevalsrc);
 
 static int init(AVFilterContext *ctx, const char *args, void *opaque)
 {
@@ -96,7 +87,7 @@ static int init(AVFilterContext *ctx, const char *args, void *opaque)
     char *expr, *buf, *bufptr;
     int ret, i;
 
-    eval->class = &eval_class;
+    eval->class = &aevalsrc_class;
     av_opt_set_defaults(eval);
 
     /* parse expressions */
@@ -204,9 +195,9 @@ static int query_formats(AVFilterContext *ctx)
     int64_t chlayouts[] = { eval->chlayout, -1 };
     int sample_rates[] = { eval->sample_rate, -1 };
 
-    avfilter_set_common_sample_formats (ctx, avfilter_make_format_list(sample_fmts));
+    ff_set_common_formats (ctx, ff_make_format_list(sample_fmts));
     ff_set_common_channel_layouts(ctx, avfilter_make_format64_list(chlayouts));
-    ff_set_common_samplerates(ctx, avfilter_make_format_list(sample_rates));
+    ff_set_common_samplerates(ctx, ff_make_format_list(sample_rates));
 
     return 0;
 }

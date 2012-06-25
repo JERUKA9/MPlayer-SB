@@ -631,6 +631,34 @@ static void add_hfyu_median_prediction_cmov(uint8_t *dst, const uint8_t *top,
 }
 #endif
 
+static inline void transpose4x4(uint8_t *dst, uint8_t *src, x86_reg dst_stride, x86_reg src_stride){
+    __asm__ volatile( //FIXME could save 1 instruction if done as 8x4 ...
+        "movd  (%1), %%mm0              \n\t"
+        "add   %3, %1                   \n\t"
+        "movd  (%1), %%mm1              \n\t"
+        "movd  (%1,%3,1), %%mm2         \n\t"
+        "movd  (%1,%3,2), %%mm3         \n\t"
+        "punpcklbw %%mm1, %%mm0         \n\t"
+        "punpcklbw %%mm3, %%mm2         \n\t"
+        "movq %%mm0, %%mm1              \n\t"
+        "punpcklwd %%mm2, %%mm0         \n\t"
+        "punpckhwd %%mm2, %%mm1         \n\t"
+        "movd  %%mm0, (%0)              \n\t"
+        "add   %2, %0                   \n\t"
+        "punpckhdq %%mm0, %%mm0         \n\t"
+        "movd  %%mm0, (%0)              \n\t"
+        "movd  %%mm1, (%0,%2,1)         \n\t"
+        "punpckhdq %%mm1, %%mm1         \n\t"
+        "movd  %%mm1, (%0,%2,2)         \n\t"
+
+        :  "+&r" (dst),
+           "+&r" (src)
+        :  "r" (dst_stride),
+           "r" (src_stride)
+        :  "memory"
+    );
+}
+
 #define H263_LOOP_FILTER                        \
     "pxor      %%mm7, %%mm7             \n\t"   \
     "movq         %0, %%mm0             \n\t"   \
@@ -807,7 +835,7 @@ static void draw_edges_mmx(uint8_t *buf, int wrap, int width, int height,
             : "+r"(ptr)
             : "r"((x86_reg)wrap), "r"((x86_reg)width), "r"(ptr + wrap * height)
             );
-    } else {
+    } else if(w==16){
         __asm__ volatile (
             "1:                                 \n\t"
             "movd            (%0), %%mm0        \n\t"
@@ -825,6 +853,25 @@ static void draw_edges_mmx(uint8_t *buf, int wrap, int width, int height,
             "add               %1, %0           \n\t"
             "cmp               %3, %0           \n\t"
             "jb                1b               \n\t"
+            : "+r"(ptr)
+            : "r"((x86_reg)wrap), "r"((x86_reg)width), "r"(ptr + wrap * height)
+            );
+    } else {
+        av_assert1(w == 4);
+        __asm__ volatile (
+            "1:                             \n\t"
+            "movd            (%0), %%mm0    \n\t"
+            "punpcklbw      %%mm0, %%mm0    \n\t"
+            "punpcklwd      %%mm0, %%mm0    \n\t"
+            "movd           %%mm0, -4(%0)   \n\t"
+            "movd      -4(%0, %2), %%mm1    \n\t"
+            "punpcklbw      %%mm1, %%mm1    \n\t"
+            "punpckhwd      %%mm1, %%mm1    \n\t"
+            "punpckhdq      %%mm1, %%mm1    \n\t"
+            "movd           %%mm1, (%0, %2) \n\t"
+            "add               %1, %0       \n\t"
+            "cmp               %3, %0       \n\t"
+            "jb                1b           \n\t"
             : "+r"(ptr)
             : "r"((x86_reg)wrap), "r"((x86_reg)width), "r"(ptr + wrap * height)
             );
@@ -2581,11 +2628,6 @@ int  ff_add_hfyu_left_prediction_sse4(uint8_t *dst, const uint8_t *src,
 
 float ff_scalarproduct_float_sse(const float *v1, const float *v2, int order);
 
-void ff_vector_fmul_sse(float *dst, const float *src0, const float *src1,
-                        int len);
-void ff_vector_fmul_avx(float *dst, const float *src0, const float *src1,
-                        int len);
-
 void ff_vector_fmul_reverse_sse(float *dst, const float *src0,
                                 const float *src1, int len);
 void ff_vector_fmul_reverse_avx(float *dst, const float *src0,
@@ -2888,7 +2930,8 @@ static void dsputil_init_3dnow(DSPContext *c, AVCodecContext *avctx,
     c->vorbis_inverse_coupling = vorbis_inverse_coupling_3dnow;
 
 #if HAVE_7REGS
-    c->add_hfyu_median_prediction = add_hfyu_median_prediction_cmov;
+    if (mm_flags & AV_CPU_FLAG_CMOV)
+        c->add_hfyu_median_prediction = add_hfyu_median_prediction_cmov;
 #endif
 }
 
@@ -2915,7 +2958,6 @@ static void dsputil_init_sse(DSPContext *c, AVCodecContext *avctx, int mm_flags)
     c->vorbis_inverse_coupling = vorbis_inverse_coupling_sse;
     c->ac3_downmix             = ac3_downmix_sse;
 #if HAVE_YASM
-    c->vector_fmul         = ff_vector_fmul_sse;
     c->vector_fmul_reverse = ff_vector_fmul_reverse_sse;
     c->vector_fmul_add     = ff_vector_fmul_add_sse;
 #endif
@@ -3077,7 +3119,6 @@ static void dsputil_init_avx(DSPContext *c, AVCodecContext *avctx, int mm_flags)
         }
     }
     c->butterflies_float_interleave = ff_butterflies_float_interleave_avx;
-    c->vector_fmul = ff_vector_fmul_avx;
     c->vector_fmul_reverse = ff_vector_fmul_reverse_avx;
     c->vector_fmul_add = ff_vector_fmul_add_avx;
 #endif

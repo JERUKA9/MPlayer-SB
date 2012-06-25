@@ -1,18 +1,22 @@
 /*
- * This file is part of Libav.
+ * Copyright 2007 Bobby Bingham
+ * Copyright 2012 Robert Nagy <ronag89 gmail com>
+ * Copyright 2012 Anton Khirnov <anton khirnov net>
  *
- * Libav is free software; you can redistribute it and/or
+ * This file is part of FFmpeg.
+ *
+ * FFmpeg is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
  *
- * Libav is distributed in the hope that it will be useful,
+ * FFmpeg is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with Libav; if not, write to the Free Software
+ * License along with FFmpeg; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
@@ -27,6 +31,8 @@
 #include "libavutil/parseutils.h"
 
 #include "avfilter.h"
+#include "internal.h"
+#include "video.h"
 
 typedef struct FPSContext {
     const AVClass *class;
@@ -49,24 +55,19 @@ typedef struct FPSContext {
 
 #define OFFSET(x) offsetof(FPSContext, x)
 #define V AV_OPT_FLAG_VIDEO_PARAM
-static const AVOption options[] = {
+static const AVOption fps_options[] = {
     { "fps", "A string describing desired output framerate", OFFSET(fps), AV_OPT_TYPE_STRING, { .str = "25" }, .flags = V },
     { NULL },
 };
 
-static const AVClass class = {
-    .class_name = "FPS filter",
-    .item_name  = av_default_item_name,
-    .option     = options,
-    .version    = LIBAVUTIL_VERSION_INT,
-};
+AVFILTER_DEFINE_CLASS(fps);
 
 static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
 {
     FPSContext *s = ctx->priv;
     int ret;
 
-    s->class = &class;
+    s->class = &fps_class;
     av_opt_set_defaults(s);
 
     if ((ret = av_set_options_string(s, args, "=", ":")) < 0) {
@@ -114,6 +115,7 @@ static int config_props(AVFilterLink* link)
     FPSContext   *s = link->src->priv;
 
     link->time_base = (AVRational){ s->framerate.den, s->framerate.num };
+    link->frame_rate= s->framerate;
     link->w         = link->src->inputs[0]->w;
     link->h         = link->src->inputs[0]->h;
     s->pts          = AV_NOPTS_VALUE;
@@ -129,7 +131,7 @@ static int request_frame(AVFilterLink *outlink)
     int ret = 0;
 
     while (ret >= 0 && s->frames_out == frames_out)
-        ret = avfilter_request_frame(ctx->inputs[0]);
+        ret = ff_request_frame(ctx->inputs[0]);
 
     /* flush the fifo */
     if (ret == AVERROR_EOF && av_fifo_size(s->fifo)) {
@@ -141,9 +143,9 @@ static int request_frame(AVFilterLink *outlink)
             buf->pts = av_rescale_q(s->first_pts, ctx->inputs[0]->time_base,
                                     outlink->time_base) + s->frames_out;
 
-            avfilter_start_frame(outlink, buf);
-            avfilter_draw_slice(outlink, 0, outlink->h, 1);
-            avfilter_end_frame(outlink);
+            ff_start_frame(outlink, buf);
+            ff_draw_slice(outlink, 0, outlink->h, 1);
+            ff_end_frame(outlink);
             s->frames_out++;
         }
         return 0;
@@ -229,9 +231,9 @@ static void end_frame(AVFilterLink *inlink)
         buf_out->pts = av_rescale_q(s->first_pts, inlink->time_base,
                                     outlink->time_base) + s->frames_out;
 
-        avfilter_start_frame(outlink, buf_out);
-        avfilter_draw_slice(outlink, 0, outlink->h, 1);
-        avfilter_end_frame(outlink);
+        ff_start_frame(outlink, buf_out);
+        ff_draw_slice(outlink, 0, outlink->h, 1);
+        ff_end_frame(outlink);
         s->frames_out++;
     }
     flush_fifo(s->fifo);

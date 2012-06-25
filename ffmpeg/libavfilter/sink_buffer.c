@@ -23,6 +23,7 @@
  * buffer video sink
  */
 
+#include "libavutil/avassert.h"
 #include "libavutil/fifo.h"
 #include "avfilter.h"
 #include "buffersink.h"
@@ -98,6 +99,7 @@ static void end_frame(AVFilterLink *inlink)
     AVFilterContext *ctx = inlink->dst;
     BufferSinkContext *buf = inlink->dst->priv;
 
+    av_assert1(inlink->cur_buf);
     if (av_fifo_space(buf->fifo) < sizeof(AVFilterBufferRef *)) {
         /* realloc fifo size */
         if (av_fifo_realloc2(buf->fifo, av_fifo_size(buf->fifo) * 2) < 0) {
@@ -121,11 +123,13 @@ int av_buffersink_get_buffer_ref(AVFilterContext *ctx,
     int ret;
     *bufref = NULL;
 
+    av_assert0(!strcmp(ctx->filter->name, "buffersink") || !strcmp(ctx->filter->name, "abuffersink"));
+
     /* no picref available, fetch it from the filterchain */
     if (!av_fifo_size(buf->fifo)) {
         if (flags & AV_BUFFERSINK_FLAG_NO_REQUEST)
             return AVERROR(EAGAIN);
-        if ((ret = avfilter_request_frame(inlink)) < 0)
+        if ((ret = ff_request_frame(inlink)) < 0)
             return ret;
     }
 
@@ -140,12 +144,21 @@ int av_buffersink_get_buffer_ref(AVFilterContext *ctx,
     return 0;
 }
 
+AVRational av_buffersink_get_frame_rate(AVFilterContext *ctx)
+{
+    av_assert0(!strcmp(ctx->filter->name, "buffersink"));
+
+    return ctx->inputs[0]->frame_rate;
+}
+
 int av_buffersink_poll_frame(AVFilterContext *ctx)
 {
     BufferSinkContext *buf = ctx->priv;
     AVFilterLink *inlink = ctx->inputs[0];
 
-    return av_fifo_size(buf->fifo)/sizeof(AVFilterBufferRef *) + avfilter_poll_frame(inlink);
+    av_assert0(!strcmp(ctx->filter->name, "buffersink") || !strcmp(ctx->filter->name, "abuffersink"));
+
+    return av_fifo_size(buf->fifo)/sizeof(AVFilterBufferRef *) + ff_poll_frame(inlink);
 }
 
 #if FF_API_OLD_VSINK_API
@@ -186,7 +199,7 @@ static av_cold void vsink_uninit(AVFilterContext *ctx)
 {
     BufferSinkContext *buf = ctx->priv;
     av_freep(&buf->pixel_fmts);
-    return common_uninit(ctx);
+    common_uninit(ctx);
 }
 
 static int vsink_query_formats(AVFilterContext *ctx)
@@ -194,9 +207,9 @@ static int vsink_query_formats(AVFilterContext *ctx)
     BufferSinkContext *buf = ctx->priv;
 
     if (buf->pixel_fmts)
-        avfilter_set_common_pixel_formats(ctx, avfilter_make_format_list(buf->pixel_fmts));
+        ff_set_common_formats(ctx, ff_make_format_list(buf->pixel_fmts));
     else
-        avfilter_default_query_formats(ctx);
+        ff_default_query_formats(ctx);
 
     return 0;
 }
@@ -256,7 +269,7 @@ static av_cold void asink_uninit(AVFilterContext *ctx)
 
     av_freep(&buf->sample_fmts);
     av_freep(&buf->channel_layouts);
-    return common_uninit(ctx);
+    common_uninit(ctx);
 }
 
 static int asink_query_formats(AVFilterContext *ctx)
@@ -265,9 +278,9 @@ static int asink_query_formats(AVFilterContext *ctx)
     AVFilterFormats *formats = NULL;
     AVFilterChannelLayouts *layouts = NULL;
 
-    if (!(formats = avfilter_make_format_list(buf->sample_fmts)))
+    if (!(formats = ff_make_format_list(buf->sample_fmts)))
         return AVERROR(ENOMEM);
-    avfilter_set_common_sample_formats(ctx, formats);
+    ff_set_common_formats(ctx, formats);
 
     if (!(layouts = avfilter_make_format64_list(buf->channel_layouts)))
         return AVERROR(ENOMEM);

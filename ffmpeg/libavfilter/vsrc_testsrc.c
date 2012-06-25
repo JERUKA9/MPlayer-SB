@@ -36,6 +36,9 @@
 #include "libavutil/intreadwrite.h"
 #include "libavutil/parseutils.h"
 #include "avfilter.h"
+#include "formats.h"
+#include "internal.h"
+#include "video.h"
 
 typedef struct {
     const AVClass *class;
@@ -83,8 +86,7 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
         return ret;
     }
 
-    if ((ret = av_parse_video_rate(&frame_rate_q, test->rate)) < 0 ||
-        frame_rate_q.den <= 0 || frame_rate_q.num <= 0) {
+    if ((ret = av_parse_video_rate(&frame_rate_q, test->rate)) < 0) {
         av_log(ctx, AV_LOG_ERROR, "Invalid frame rate: '%s'\n", test->rate);
         return ret;
     }
@@ -135,8 +137,7 @@ static int request_frame(AVFilterLink *outlink)
 
     if (test->max_pts >= 0 && test->pts >= test->max_pts)
         return AVERROR_EOF;
-    picref = avfilter_get_video_buffer(outlink, AV_PERM_WRITE,
-                                       test->w, test->h);
+    picref = ff_get_video_buffer(outlink, AV_PERM_WRITE, test->w, test->h);
     picref->pts = test->pts++;
     picref->pos = -1;
     picref->video->key_frame = 1;
@@ -146,9 +147,9 @@ static int request_frame(AVFilterLink *outlink)
     test->fill_picture_fn(outlink->src, picref);
     test->nb_frame++;
 
-    avfilter_start_frame(outlink, avfilter_ref_buffer(picref, ~0));
-    avfilter_draw_slice(outlink, 0, picref->video->h, 1);
-    avfilter_end_frame(outlink);
+    ff_start_frame(outlink, avfilter_ref_buffer(picref, ~0));
+    ff_draw_slice(outlink, 0, picref->video->h, 1);
+    ff_end_frame(outlink);
     avfilter_unref_buffer(picref);
 
     return 0;
@@ -156,15 +157,12 @@ static int request_frame(AVFilterLink *outlink)
 
 #if CONFIG_NULLSRC_FILTER
 
-static const char *nullsrc_get_name(void *ctx)
-{
-    return "nullsrc";
-}
-
 static const AVClass nullsrc_class = {
-    .class_name = "NullSourceContext",
-    .item_name  = nullsrc_get_name,
+    .class_name = "nullsrc",
+    .item_name  = av_default_item_name,
     .option     = testsrc_options,
+    .version    = LIBAVUTIL_VERSION_INT,
+    .category   = AV_CLASS_CATEGORY_FILTER,
 };
 
 static void nullsrc_fill_picture(AVFilterContext *ctx, AVFilterBufferRef *picref) { }
@@ -196,16 +194,7 @@ AVFilter avfilter_vsrc_nullsrc = {
 
 #if CONFIG_TESTSRC_FILTER
 
-static const char *testsrc_get_name(void *ctx)
-{
-    return "testsrc";
-}
-
-static const AVClass testsrc_class = {
-    .class_name = "TestSourceContext",
-    .item_name  = testsrc_get_name,
-    .option     = testsrc_options,
-};
+AVFILTER_DEFINE_CLASS(testsrc);
 
 /**
  * Fill a rectangle with value val.
@@ -398,7 +387,7 @@ static int test_query_formats(AVFilterContext *ctx)
     static const enum PixelFormat pix_fmts[] = {
         PIX_FMT_RGB24, PIX_FMT_NONE
     };
-    avfilter_set_common_pixel_formats(ctx, avfilter_make_format_list(pix_fmts));
+    ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
     return 0;
 }
 
@@ -423,15 +412,12 @@ AVFilter avfilter_vsrc_testsrc = {
 
 #if CONFIG_RGBTESTSRC_FILTER
 
-static const char *rgbtestsrc_get_name(void *ctx)
-{
-    return "rgbtestsrc";
-}
-
 static const AVClass rgbtestsrc_class = {
-    .class_name = "RGBTestSourceContext",
-    .item_name  = rgbtestsrc_get_name,
+    .class_name = "rgbtestsrc",
+    .item_name  = av_default_item_name,
     .option     = testsrc_options,
+    .version    = LIBAVUTIL_VERSION_INT,
+    .category   = AV_CLASS_CATEGORY_FILTER,
 };
 
 #define R 0
@@ -509,7 +495,7 @@ static int rgbtest_query_formats(AVFilterContext *ctx)
         PIX_FMT_RGB555, PIX_FMT_BGR555,
         PIX_FMT_NONE
     };
-    avfilter_set_common_pixel_formats(ctx, avfilter_make_format_list(pix_fmts));
+    ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
     return 0;
 }
 

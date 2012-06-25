@@ -34,6 +34,9 @@
 #include "libavutil/parseutils.h"
 #include "drawutils.h"
 #include "avfilter.h"
+#include "internal.h"
+#include "formats.h"
+#include "video.h"
 
 typedef struct {
     const AVClass *class;
@@ -54,16 +57,7 @@ static const AVOption ass_options[] = {
     {NULL},
 };
 
-static const char *ass_get_name(void *ctx)
-{
-    return "ass";
-}
-
-static const AVClass ass_class = {
-    "AssContext",
-    ass_get_name,
-    ass_options
-};
+AVFILTER_DEFINE_CLASS(ass);
 
 /* libass supports a log level ranging from 0 to 7 */
 int ass_libav_log_level_map[] = {
@@ -145,7 +139,7 @@ static av_cold void uninit(AVFilterContext *ctx)
 
 static int query_formats(AVFilterContext *ctx)
 {
-    avfilter_set_common_pixel_formats(ctx, ff_draw_supported_pixel_formats(0));
+    ff_set_common_formats(ctx, ff_draw_supported_pixel_formats(0));
     return 0;
 }
 
@@ -202,8 +196,8 @@ static void end_frame(AVFilterLink *inlink)
 
     overlay_ass_image(ass, picref, image);
 
-    avfilter_draw_slice(outlink, 0, picref->video->h, 1);
-    avfilter_end_frame(outlink);
+    ff_draw_slice(outlink, 0, picref->video->h, 1);
+    ff_end_frame(outlink);
 }
 
 AVFilter avfilter_vf_ass = {
@@ -217,8 +211,8 @@ AVFilter avfilter_vf_ass = {
     .inputs = (const AVFilterPad[]) {
         { .name             = "default",
           .type             = AVMEDIA_TYPE_VIDEO,
-          .get_video_buffer = avfilter_null_get_video_buffer,
-          .start_frame      = avfilter_null_start_frame,
+          .get_video_buffer = ff_null_get_video_buffer,
+          .start_frame      = ff_null_start_frame,
           .draw_slice       = null_draw_slice,
           .end_frame        = end_frame,
           .config_props     = config_input,

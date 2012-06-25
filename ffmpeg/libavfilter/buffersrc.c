@@ -28,6 +28,7 @@
 #include "buffersrc.h"
 #include "formats.h"
 #include "internal.h"
+#include "video.h"
 #include "vsrc_buffer.h"
 #include "avcodec.h"
 
@@ -41,13 +42,14 @@ typedef struct {
     const AVClass    *class;
     AVFifoBuffer     *fifo;
     AVRational        time_base;     ///< time_base to set in the output link
+    AVRational        frame_rate;    ///< frame_rate to set in the output link
     unsigned          nb_failed_requests;
 
     /* video only */
-    int               h, w;
+    int               w, h;
     enum PixelFormat  pix_fmt;
     AVRational        pixel_aspect;
-    char              sws_param[256];
+    char              *sws_param;
 
     /* audio only */
     int sample_rate;
@@ -82,7 +84,7 @@ static AVFilterBufferRef *copy_buffer_ref(AVFilterContext *ctx,
     switch (outlink->type) {
 
     case AVMEDIA_TYPE_VIDEO:
-        buf = avfilter_get_video_buffer(outlink, AV_PERM_WRITE,
+        buf = ff_get_video_buffer(outlink, AV_PERM_WRITE,
                                         ref->video->w, ref->video->h);
         if(!buf)
             return NULL;
@@ -109,25 +111,6 @@ static AVFilterBufferRef *copy_buffer_ref(AVFilterContext *ctx,
     avfilter_copy_buffer_ref_props(buf, ref);
     return buf;
 }
-
-#if FF_API_VSRC_BUFFER_ADD_FRAME
-static int av_vsrc_buffer_add_frame_alt(AVFilterContext *buffer_filter, AVFrame *frame,
-                             int64_t pts, AVRational pixel_aspect)
-{
-    int64_t orig_pts = frame->pts;
-    AVRational orig_sar = frame->sample_aspect_ratio;
-    int ret;
-
-    frame->pts = pts;
-    frame->sample_aspect_ratio = pixel_aspect;
-    if ((ret = av_buffersrc_write_frame(buffer_filter, frame)) < 0)
-        return ret;
-    frame->pts = orig_pts;
-    frame->sample_aspect_ratio = orig_sar;
-
-    return 0;
-}
-#endif
 
 int av_buffersrc_add_frame(AVFilterContext *buffer_src,
                            const AVFrame *frame, int flags)
@@ -215,37 +198,79 @@ unsigned av_buffersrc_get_nb_failed_requests(AVFilterContext *buffer_src)
     return ((BufferSourceContext *)buffer_src->priv)->nb_failed_requests;
 }
 
+#define OFFSET(x) offsetof(BufferSourceContext, x)
+#define V AV_OPT_FLAG_VIDEO_PARAM
+static const AVOption buffer_options[] = {
+    { "time_base",      NULL, OFFSET(time_base),           AV_OPT_TYPE_RATIONAL,   { 0 }, 0, INT_MAX, V },
+    { "frame_rate",     NULL, OFFSET(frame_rate),          AV_OPT_TYPE_RATIONAL,   { 0 }, 0, INT_MAX, V },
+    { "video_size",     NULL, OFFSET(w),                   AV_OPT_TYPE_IMAGE_SIZE,           .flags = V },
+    { "pix_fmt",        NULL, OFFSET(pix_fmt),             AV_OPT_TYPE_PIXEL_FMT,            .flags = V },
+    { "pixel_aspect",   NULL, OFFSET(pixel_aspect),        AV_OPT_TYPE_RATIONAL,   { 0 }, 0, INT_MAX, V },
+    { "sws_param",      NULL, OFFSET(sws_param),           AV_OPT_TYPE_STRING,               .flags = V },
+    { NULL },
+};
+#undef V
+
+AVFILTER_DEFINE_CLASS(buffer);
+
 static av_cold int init_video(AVFilterContext *ctx, const char *args, void *opaque)
 {
     BufferSourceContext *c = ctx->priv;
-    char pix_fmt_str[128];
+    char pix_fmt_str[128], sws_param[256] = "", *colon, *equal;
     int ret, n = 0;
-    *c->sws_param = 0;
 
-    if (!args ||
-        (n = sscanf(args, "%d:%d:%127[^:]:%d:%d:%d:%d:%255c", &c->w, &c->h, pix_fmt_str,
-                    &c->time_base.num, &c->time_base.den,
-                    &c->pixel_aspect.num, &c->pixel_aspect.den, c->sws_param)) < 7) {
-        av_log(ctx, AV_LOG_ERROR, "Expected at least 7 arguments, but only %d found in '%s'\n", n, args);
+    c->class = &buffer_class;
+
+    if (!args) {
+        av_log(ctx, AV_LOG_ERROR, "Arguments required\n");
         return AVERROR(EINVAL);
     }
+    colon = strchr(args, ':');
+    equal = strchr(args, '=');
+    if (equal && (!colon || equal < colon)) {
+        av_opt_set_defaults(c);
+        ret = av_set_options_string(c, args, "=", ":");
+        if (ret < 0) {
+            av_log(ctx, AV_LOG_ERROR, "Error parsing options string: %s\n", args);
+            goto fail;
+        }
+    } else {
+    if ((n = sscanf(args, "%d:%d:%127[^:]:%d:%d:%d:%d:%255c", &c->w, &c->h, pix_fmt_str,
+                    &c->time_base.num, &c->time_base.den,
+                    &c->pixel_aspect.num, &c->pixel_aspect.den, sws_param)) < 7) {
+        av_log(ctx, AV_LOG_ERROR, "Expected at least 7 arguments, but only %d found in '%s'\n", n, args);
+        ret = AVERROR(EINVAL);
+        goto fail;
+    }
+    av_log(ctx, AV_LOG_WARNING, "Flat options syntax is deprecated, use key=value pairs\n");
 
     if ((ret = ff_parse_pixel_format(&c->pix_fmt, pix_fmt_str, ctx)) < 0)
-        return ret;
+        goto fail;
+    c->sws_param = av_strdup(sws_param);
+    if (!c->sws_param) {
+        ret = AVERROR(ENOMEM);
+        goto fail;
+    }
+    }
 
-    if (!(c->fifo = av_fifo_alloc(sizeof(AVFilterBufferRef*))))
-        return AVERROR(ENOMEM);
+    if (!(c->fifo = av_fifo_alloc(sizeof(AVFilterBufferRef*)))) {
+        ret = AVERROR(ENOMEM);
+        goto fail;
+    }
 
-    av_log(ctx, AV_LOG_INFO, "w:%d h:%d pixfmt:%s tb:%d/%d sar:%d/%d sws_param:%s\n",
+    av_log(ctx, AV_LOG_INFO, "w:%d h:%d pixfmt:%s tb:%d/%d fr:%d/%d sar:%d/%d sws_param:%s\n",
            c->w, c->h, av_pix_fmt_descriptors[c->pix_fmt].name,
-           c->time_base.num, c->time_base.den,
-           c->pixel_aspect.num, c->pixel_aspect.den, c->sws_param);
+           c->time_base.num, c->time_base.den, c->frame_rate.num, c->frame_rate.den,
+           c->pixel_aspect.num, c->pixel_aspect.den, (char *)av_x_if_null(c->sws_param, ""));
     return 0;
+
+fail:
+    av_opt_free(c);
+    return ret;
 }
 
-#define OFFSET(x) offsetof(BufferSourceContext, x)
 #define A AV_OPT_FLAG_AUDIO_PARAM
-static const AVOption audio_options[] = {
+static const AVOption abuffer_options[] = {
     { "time_base",      NULL, OFFSET(time_base),           AV_OPT_TYPE_RATIONAL, { 0 }, 0, INT_MAX, A },
     { "sample_rate",    NULL, OFFSET(sample_rate),         AV_OPT_TYPE_INT,      { 0 }, 0, INT_MAX, A },
     { "sample_fmt",     NULL, OFFSET(sample_fmt_str),      AV_OPT_TYPE_STRING,             .flags = A },
@@ -253,12 +278,7 @@ static const AVOption audio_options[] = {
     { NULL },
 };
 
-static const AVClass abuffer_class = {
-    .class_name = "abuffer source",
-    .item_name  = av_default_item_name,
-    .option     = audio_options,
-    .version    = LIBAVUTIL_VERSION_INT,
-};
+AVFILTER_DEFINE_CLASS(abuffer);
 
 static av_cold int init_audio(AVFilterContext *ctx, const char *args, void *opaque)
 {
@@ -269,13 +289,13 @@ static av_cold int init_audio(AVFilterContext *ctx, const char *args, void *opaq
     av_opt_set_defaults(s);
 
     if ((ret = av_set_options_string(s, args, "=", ":")) < 0) {
-        av_log(ctx, AV_LOG_ERROR, "Error parsing options string: %s.\n", args);
+        av_log(ctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
         goto fail;
     }
 
     s->sample_fmt = av_get_sample_fmt(s->sample_fmt_str);
     if (s->sample_fmt == AV_SAMPLE_FMT_NONE) {
-        av_log(ctx, AV_LOG_ERROR, "Invalid sample format %s.\n",
+        av_log(ctx, AV_LOG_ERROR, "Invalid sample format '%s'\n",
                s->sample_fmt_str);
         ret = AVERROR(EINVAL);
         goto fail;
@@ -283,7 +303,7 @@ static av_cold int init_audio(AVFilterContext *ctx, const char *args, void *opaq
 
     s->channel_layout = av_get_channel_layout(s->channel_layout_str);
     if (!s->channel_layout) {
-        av_log(ctx, AV_LOG_ERROR, "Invalid channel layout %s.\n",
+        av_log(ctx, AV_LOG_ERROR, "Invalid channel layout '%s'\n",
                s->channel_layout_str);
         ret = AVERROR(EINVAL);
         goto fail;
@@ -316,6 +336,7 @@ static av_cold void uninit(AVFilterContext *ctx)
     }
     av_fifo_free(s->fifo);
     s->fifo = NULL;
+    av_freep(&s->sws_param);
 }
 
 static int query_formats(AVFilterContext *ctx)
@@ -327,14 +348,14 @@ static int query_formats(AVFilterContext *ctx)
 
     switch (ctx->outputs[0]->type) {
     case AVMEDIA_TYPE_VIDEO:
-        avfilter_add_format(&formats, c->pix_fmt);
-        avfilter_set_common_formats(ctx, formats);
+        ff_add_format(&formats, c->pix_fmt);
+        ff_set_common_formats(ctx, formats);
         break;
     case AVMEDIA_TYPE_AUDIO:
-        avfilter_add_format(&formats,           c->sample_fmt);
-        avfilter_set_common_formats(ctx, formats);
+        ff_add_format(&formats,           c->sample_fmt);
+        ff_set_common_formats(ctx, formats);
 
-        avfilter_add_format(&samplerates,       c->sample_rate);
+        ff_add_format(&samplerates,       c->sample_rate);
         ff_set_common_samplerates(ctx, samplerates);
 
         ff_add_channel_layout(&channel_layouts, c->channel_layout);
@@ -366,6 +387,7 @@ static int config_props(AVFilterLink *link)
     }
 
     link->time_base = c->time_base;
+    link->frame_rate = c->frame_rate;
     return 0;
 }
 
@@ -384,9 +406,9 @@ static int request_frame(AVFilterLink *link)
 
     switch (link->type) {
     case AVMEDIA_TYPE_VIDEO:
-        avfilter_start_frame(link, avfilter_ref_buffer(buf, ~0));
-        avfilter_draw_slice(link, 0, link->h, 1);
-        avfilter_end_frame(link);
+        ff_start_frame(link, avfilter_ref_buffer(buf, ~0));
+        ff_draw_slice(link, 0, link->h, 1);
+        ff_end_frame(link);
         break;
     case AVMEDIA_TYPE_AUDIO:
         ff_filter_samples(link, avfilter_ref_buffer(buf, ~0));

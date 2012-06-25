@@ -97,7 +97,7 @@ fate-dxa-scummvm: CMD = framecrc -i $(SAMPLES)/dxa/scummvm.dxa -pix_fmt rgb24
 FATE_VIDEO += $(FATE_DXA)
 fate-dxa: $(FATE_DXA)
 
-FATE_PCM += fate-film-cvid
+FATE_SAMPLES_PCM += fate-film-cvid
 fate-film-cvid: CMD = framecrc -i $(SAMPLES)/film/logo-capcom.cpk -an
 
 FATE_FLIC += fate-flic-af11-palette-change
@@ -179,6 +179,9 @@ fate-rl2: CMD = framecrc -i $(SAMPLES)/rl2/Z4915300.RL2 -pix_fmt rgb24 -an
 FATE_VIDEO += fate-roqvideo
 fate-roqvideo: CMD = framecrc -i $(SAMPLES)/idroq/idlogo.roq -an
 
+FATE_VIDEO += fate-sanm
+fate-sanm: CMD = framecrc -i $(SAMPLES)/smush/ronin_part.znm -an -pix_fmt rgb24
+
 FATA_VIDEO += fate-sierra-vmd-video
 fate-sierra-vmd-video: CMD = framecrc -i $(SAMPLES)/vmd/12.vmd -pix_fmt rgb24 -an
 
@@ -245,6 +248,8 @@ fate-yop: CMD = framecrc -i $(SAMPLES)/yop/test1.yop -pix_fmt rgb24 -an
 
 FATE_VIDEO += fate-xxan-wc4
 fate-xxan-wc4: CMD = framecrc -i $(SAMPLES)/wc4-xan/wc4trailer-partial.avi -an
+
+FATE_VIDEO += $(FATE_VIDEO-yes)
 
 FATE_SAMPLES_FFMPEG += $(FATE_VIDEO)
 fate-video: $(FATE_VIDEO)
