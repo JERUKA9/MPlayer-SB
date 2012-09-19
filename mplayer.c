@@ -3137,6 +3137,7 @@ play_next_file:
             run_command(mpctx, cmd);
             break;
         }
+        mpctx->osd_function = cmd->pausing ? OSD_PAUSE : OSD_PLAY;
 
         mp_cmd_free(cmd);
 

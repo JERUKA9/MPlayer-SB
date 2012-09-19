@@ -19,18 +19,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "internal.h"
-#include "libavutil/avassert.h"
-#include "bytestream.h"
-#include "avcodec.h"
+#include <string.h>
 
-void av_destruct_packet_nofree(AVPacket *pkt)
-{
-    pkt->data            = NULL;
-    pkt->size            = 0;
-    pkt->side_data       = NULL;
-    pkt->side_data_elems = 0;
-}
+#include "libavutil/avassert.h"
+#include "libavutil/mem.h"
+#include "avcodec.h"
+#include "bytestream.h"
+#include "internal.h"
 
 void ff_packet_free_side_data(AVPacket *pkt)
 {
@@ -134,8 +129,7 @@ int av_dup_packet(AVPacket *pkt)
 {
     AVPacket tmp_pkt;
 
-    if (((pkt->destruct == av_destruct_packet_nofree) ||
-         (pkt->destruct == NULL)) && pkt->data) {
+    if (pkt->destruct == NULL && pkt->data) {
         tmp_pkt = *pkt;
 
         pkt->data      = NULL;
@@ -150,9 +144,12 @@ int av_dup_packet(AVPacket *pkt)
                      pkt->side_data_elems * sizeof(*pkt->side_data), 0);
             memset(pkt->side_data, 0,
                    pkt->side_data_elems * sizeof(*pkt->side_data));
-            for (i = 0; i < pkt->side_data_elems; i++)
+            for (i = 0; i < pkt->side_data_elems; i++) {
                 DUP_DATA(pkt->side_data[i].data, tmp_pkt.side_data[i].data,
                          tmp_pkt.side_data[i].size, 1);
+                pkt->side_data[i].size = tmp_pkt.side_data[i].size;
+                pkt->side_data[i].type = tmp_pkt.side_data[i].type;
+            }
         }
     }
     return 0;

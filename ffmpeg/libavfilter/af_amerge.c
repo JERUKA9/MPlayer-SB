@@ -11,7 +11,7 @@
  * FFmpeg is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
  * License along with FFmpeg; if not, write to the Free Software
@@ -23,6 +23,8 @@
  * Audio merging filter
  */
 
+#include "libavutil/audioconvert.h"
+#include "libavutil/avstring.h"
 #include "libavutil/bprint.h"
 #include "libavutil/opt.h"
 #include "libswresample/swresample.h" // only for SWR_CH_MAX
@@ -45,10 +47,11 @@ typedef struct {
 } AMergeContext;
 
 #define OFFSET(x) offsetof(AMergeContext, x)
+#define FLAGS AV_OPT_FLAG_AUDIO_PARAM|AV_OPT_FLAG_FILTERING_PARAM
 
 static const AVOption amerge_options[] = {
     { "inputs", "specify the number of inputs", OFFSET(nb_inputs),
-      AV_OPT_TYPE_INT, { .dbl = 2 }, 2, SWR_CH_MAX },
+      AV_OPT_TYPE_INT, { .i64 = 2 }, 2, SWR_CH_MAX, FLAGS },
     {0}
 };
 
@@ -59,8 +62,10 @@ static av_cold void uninit(AVFilterContext *ctx)
     AMergeContext *am = ctx->priv;
     int i;
 
-    for (i = 0; i < am->nb_inputs; i++)
+    for (i = 0; i < am->nb_inputs; i++) {
         ff_bufqueue_discard_all(&am->in[i].queue);
+        av_freep(&ctx->input_pads[i].name);
+    }
     av_freep(&am->in);
 }
 
@@ -97,7 +102,8 @@ static int query_formats(AVFilterContext *ctx)
     }
     if (overlap) {
         av_log(ctx, AV_LOG_WARNING,
-               "Inputs overlap: output layout will be meaningless\n");
+               "Input channel layouts overlap: "
+               "output layout will be determined by the number of distinct input channels\n");
         for (i = 0; i < nb_ch; i++)
             am->route[i] = i;
         outlayout = av_get_default_channel_layout(nb_ch);
@@ -140,7 +146,7 @@ static int config_output(AVFilterLink *outlink)
         if (ctx->inputs[i]->sample_rate != ctx->inputs[0]->sample_rate) {
             av_log(ctx, AV_LOG_ERROR,
                    "Inputs must have the same sample rate "
-                   "(%"PRIi64" for in%d vs %"PRIi64")\n",
+                   "%d for in%d vs %d\n",
                    ctx->inputs[i]->sample_rate, i, ctx->inputs[0]->sample_rate);
             return AVERROR(EINVAL);
         }
@@ -156,7 +162,7 @@ static int config_output(AVFilterLink *outlink)
     }
     av_bprintf(&bp, " -> out:");
     av_bprint_channel_layout(&bp, -1, ctx->outputs[0]->channel_layout);
-    av_log(ctx, AV_LOG_INFO, "%s\n", bp.str);
+    av_log(ctx, AV_LOG_VERBOSE, "%s\n", bp.str);
 
     return 0;
 }
@@ -211,7 +217,7 @@ static inline void copy_samples(int nb_inputs, struct amerge_input in[],
     }
 }
 
-static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
+static int filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
 {
     AVFilterContext *ctx = inlink->dst;
     AMergeContext *am = ctx->priv;
@@ -231,7 +237,7 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
     for (i = 1; i < am->nb_inputs; i++)
         nb_samples = FFMIN(nb_samples, am->in[i].nb_samples);
     if (!nb_samples)
-        return;
+        return 0;
 
     outbuf = ff_get_audio_buffer(ctx->outputs[0], AV_PERM_WRITE, nb_samples);
     outs = outbuf->data[0];
@@ -240,13 +246,13 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
         ins[i] = inbuf[i]->data[0] +
                  am->in[i].pos * am->in[i].nb_ch * am->bps;
     }
+    avfilter_copy_buffer_ref_props(outbuf, inbuf[0]);
     outbuf->pts = inbuf[0]->pts == AV_NOPTS_VALUE ? AV_NOPTS_VALUE :
                   inbuf[0]->pts +
                   av_rescale_q(am->in[0].pos,
                                (AVRational){ 1, ctx->inputs[0]->sample_rate },
                                ctx->outputs[0]->time_base);
 
-    avfilter_copy_buffer_ref_props(outbuf, inbuf[0]);
     outbuf->audio->nb_samples     = nb_samples;
     outbuf->audio->channel_layout = outlink->channel_layout;
 
@@ -284,14 +290,13 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
             }
         }
     }
-    ff_filter_samples(ctx->outputs[0], outbuf);
+    return ff_filter_samples(ctx->outputs[0], outbuf);
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     AMergeContext *am = ctx->priv;
     int ret, i;
-    char name[16];
 
     am->class = &amerge_class;
     av_opt_set_defaults(am);
@@ -304,13 +309,15 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
     if (!am->in)
         return AVERROR(ENOMEM);
     for (i = 0; i < am->nb_inputs; i++) {
+        char *name = av_asprintf("in%d", i);
         AVFilterPad pad = {
             .name             = name,
             .type             = AVMEDIA_TYPE_AUDIO,
             .filter_samples   = filter_samples,
             .min_perms        = AV_PERM_READ | AV_PERM_PRESERVE,
         };
-        snprintf(name, sizeof(name), "in%d", i);
+        if (!name)
+            return AVERROR(ENOMEM);
         ff_insert_inpad(ctx, i, &pad);
     }
     return 0;
@@ -333,4 +340,5 @@ AVFilter avfilter_af_amerge = {
           .request_frame    = request_frame, },
         { .name = NULL }
     },
+    .priv_class = &amerge_class,
 };

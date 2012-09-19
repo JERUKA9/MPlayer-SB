@@ -95,8 +95,8 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx)
 
     avfilter_register_all();
 
-    buffersink = avfilter_get_by_name("buffersink");
-    abuffersink = avfilter_get_by_name("abuffersink");
+    buffersink = avfilter_get_by_name("ffbuffersink");
+    abuffersink = avfilter_get_by_name("ffabuffersink");
 
     if (!lavfi->graph_str)
         lavfi->graph_str = av_strdup(avctx->filename);
@@ -191,16 +191,10 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx)
         if (type == AVMEDIA_TYPE_VIDEO) {
             AVBufferSinkParams *buffersink_params = av_buffersink_params_alloc();
 
-#if FF_API_OLD_VSINK_API
-            ret = avfilter_graph_create_filter(&sink, buffersink,
-                                               inout->name, NULL,
-                                               pix_fmts, lavfi->graph);
-#else
             buffersink_params->pixel_fmts = pix_fmts;
             ret = avfilter_graph_create_filter(&sink, buffersink,
                                                inout->name, NULL,
                                                buffersink_params, lavfi->graph);
-#endif
             av_freep(&buffersink_params);
 
             if (ret < 0)
@@ -245,7 +239,7 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx)
         st->codec->codec_type = link->type;
         avpriv_set_pts_info(st, 64, link->time_base.num, link->time_base.den);
         if (link->type == AVMEDIA_TYPE_VIDEO) {
-            st->codec->codec_id   = CODEC_ID_RAWVIDEO;
+            st->codec->codec_id   = AV_CODEC_ID_RAWVIDEO;
             st->codec->pix_fmt    = link->format;
             st->codec->time_base  = link->time_base;
             st->codec->width      = link->w;
@@ -259,7 +253,7 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx)
             st->codec->sample_rate = link->sample_rate;
             st->codec->time_base   = link->time_base;
             st->codec->channel_layout = link->channel_layout;
-            if (st->codec->codec_id == CODEC_ID_NONE)
+            if (st->codec->codec_id == AV_CODEC_ID_NONE)
                 av_log(avctx, AV_LOG_ERROR,
                        "Could not find PCM codec for sample format %s.\n",
                        av_get_sample_fmt_name(link->format));
@@ -340,8 +334,8 @@ static int lavfi_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 #define DEC AV_OPT_FLAG_DECODING_PARAM
 
 static const AVOption options[] = {
-    { "graph", "Libavfilter graph", OFFSET(graph_str),  AV_OPT_TYPE_STRING, {.str = NULL }, 0,  0, DEC },
-    { "dumpgraph", "Dump graph to stderr", OFFSET(dump_graph), AV_OPT_TYPE_STRING, {.str = NULL}, 0,  0, DEC },
+    { "graph",     "set libavfilter graph", OFFSET(graph_str),  AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC },
+    { "dumpgraph", "dump graph to stderr",  OFFSET(dump_graph), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC },
     { NULL },
 };
 

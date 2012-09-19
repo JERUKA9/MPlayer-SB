@@ -20,7 +20,7 @@
 
 /**
  * @file
- * audio to video transmedia filter
+ * audio to video multimedia filter
  */
 
 #include "libavutil/audioconvert.h"
@@ -45,19 +45,20 @@ typedef struct {
 } ShowWavesContext;
 
 #define OFFSET(x) offsetof(ShowWavesContext, x)
+#define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
 
 static const AVOption showwaves_options[] = {
-    { "rate", "set video rate", OFFSET(rate_str), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0 },
-    { "r",    "set video rate", OFFSET(rate_str), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0 },
-    { "size", "set video size", OFFSET(w), AV_OPT_TYPE_IMAGE_SIZE, {.str = "600x240"}, 0, 0 },
-    { "s",    "set video size", OFFSET(w), AV_OPT_TYPE_IMAGE_SIZE, {.str = "600x240"}, 0, 0 },
-    { "n",    "set how many samples to show in the same point", OFFSET(n), AV_OPT_TYPE_INT, {.dbl = 0}, 0, INT_MAX},
+    { "rate", "set video rate", OFFSET(rate_str), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, FLAGS },
+    { "r",    "set video rate", OFFSET(rate_str), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, FLAGS },
+    { "size", "set video size", OFFSET(w), AV_OPT_TYPE_IMAGE_SIZE, {.str = "600x240"}, 0, 0, FLAGS },
+    { "s",    "set video size", OFFSET(w), AV_OPT_TYPE_IMAGE_SIZE, {.str = "600x240"}, 0, 0, FLAGS },
+    { "n",    "set how many samples to show in the same point", OFFSET(n), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, FLAGS },
     { NULL },
 };
 
 AVFILTER_DEFINE_CLASS(showwaves);
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     ShowWavesContext *showwaves = ctx->priv;
     int err;
@@ -66,10 +67,8 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
     av_opt_set_defaults(showwaves);
     showwaves->buf_idx = 0;
 
-    if ((err = av_set_options_string(showwaves, args, "=", ":")) < 0) {
-        av_log(ctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+    if ((err = av_set_options_string(showwaves, args, "=", ":")) < 0)
         return err;
-    }
 
     return 0;
 }
@@ -145,7 +144,7 @@ static int config_output(AVFilterLink *outlink)
     outlink->frame_rate = av_div_q((AVRational){inlink->sample_rate,showwaves->n},
                                    (AVRational){showwaves->w,1});
 
-    av_log(ctx, AV_LOG_INFO, "s:%dx%d r:%f n:%d\n",
+    av_log(ctx, AV_LOG_VERBOSE, "s:%dx%d r:%f n:%d\n",
            showwaves->w, showwaves->h, av_q2d(outlink->frame_rate), showwaves->n);
     return 0;
 }
@@ -180,7 +179,7 @@ static int request_frame(AVFilterLink *outlink)
 
 #define MAX_INT16 ((1<<15) -1)
 
-static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
+static int filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
 {
     AVFilterContext *ctx = inlink->dst;
     AVFilterLink *outlink = ctx->outputs[0];
@@ -206,7 +205,6 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
                              av_rescale_q((p - (int16_t *)insamples->data[0]) / nb_channels,
                                           (AVRational){ 1, inlink->sample_rate },
                                           outlink->time_base);
-            outlink->out_buf = outpicref;
             linesize = outpicref->linesize[0];
             memset(outpicref->data[0], 0, showwaves->h*linesize);
         }
@@ -225,6 +223,7 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
     }
 
     avfilter_unref_buffer(insamples);
+    return 0;
 }
 
 AVFilter avfilter_avf_showwaves = {
@@ -254,4 +253,6 @@ AVFilter avfilter_avf_showwaves = {
         },
         { .name = NULL }
     },
+
+    .priv_class = &showwaves_class,
 };

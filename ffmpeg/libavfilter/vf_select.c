@@ -26,6 +26,7 @@
 #include "libavutil/eval.h"
 #include "libavutil/fifo.h"
 #include "libavcodec/dsputil.h"
+#include "libavutil/internal.h"
 #include "avfilter.h"
 #include "formats.h"
 #include "internal.h"
@@ -124,7 +125,7 @@ typedef struct {
     AVFifoBuffer *pending_frames; ///< FIFO buffer of video frames
 } SelectContext;
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     SelectContext *select = ctx->priv;
     int ret;
@@ -269,12 +270,13 @@ static int select_frame(AVFilterContext *ctx, AVFilterBufferRef *picref)
     return res;
 }
 
-static void start_frame(AVFilterLink *inlink, AVFilterBufferRef *picref)
+static int start_frame(AVFilterLink *inlink, AVFilterBufferRef *picref)
 {
     SelectContext *select = inlink->dst->priv;
 
     select->select = select_frame(inlink->dst, picref);
     if (select->select) {
+        AVFilterBufferRef *buf_out;
         /* frame was requested through poll_frame */
         if (select->cache_frames) {
             if (!av_fifo_space(select->pending_frames))
@@ -283,31 +285,36 @@ static void start_frame(AVFilterLink *inlink, AVFilterBufferRef *picref)
             else
                 av_fifo_generic_write(select->pending_frames, &picref,
                                       sizeof(picref), NULL);
-            return;
+            return 0;
         }
-        ff_start_frame(inlink->dst->outputs[0], avfilter_ref_buffer(picref, ~0));
+        buf_out = avfilter_ref_buffer(picref, ~0);
+        if (!buf_out)
+            return AVERROR(ENOMEM);
+        return ff_start_frame(inlink->dst->outputs[0], buf_out);
     }
+
+    return 0;
 }
 
-static void draw_slice(AVFilterLink *inlink, int y, int h, int slice_dir)
+static int draw_slice(AVFilterLink *inlink, int y, int h, int slice_dir)
 {
     SelectContext *select = inlink->dst->priv;
 
     if (select->select && !select->cache_frames)
-        ff_draw_slice(inlink->dst->outputs[0], y, h, slice_dir);
+        return ff_draw_slice(inlink->dst->outputs[0], y, h, slice_dir);
+    return 0;
 }
 
-static void end_frame(AVFilterLink *inlink)
+static int end_frame(AVFilterLink *inlink)
 {
     SelectContext *select = inlink->dst->priv;
-    AVFilterBufferRef *picref = inlink->cur_buf;
 
     if (select->select) {
         if (select->cache_frames)
-            return;
-        ff_end_frame(inlink->dst->outputs[0]);
+            return 0;
+        return ff_end_frame(inlink->dst->outputs[0]);
     }
-    avfilter_unref_buffer(picref);
+    return 0;
 }
 
 static int request_frame(AVFilterLink *outlink)
@@ -319,12 +326,14 @@ static int request_frame(AVFilterLink *outlink)
 
     if (av_fifo_size(select->pending_frames)) {
         AVFilterBufferRef *picref;
+        int ret;
+
         av_fifo_generic_read(select->pending_frames, &picref, sizeof(picref), NULL);
-        ff_start_frame(outlink, avfilter_ref_buffer(picref, ~0));
-        ff_draw_slice(outlink, 0, outlink->h, 1);
-        ff_end_frame(outlink);
-        avfilter_unref_buffer(picref);
-        return 0;
+        if ((ret = ff_start_frame(outlink, picref)) < 0 ||
+            (ret = ff_draw_slice(outlink, 0, outlink->h, 1)) < 0 ||
+            (ret = ff_end_frame(outlink)) < 0);
+
+        return ret;
     }
 
     while (!select->select) {
@@ -374,8 +383,10 @@ static av_cold void uninit(AVFilterContext *ctx)
 
     if (select->do_scene_detect) {
         avfilter_unref_bufferp(&select->prev_picref);
-        avcodec_close(select->avctx);
-        av_freep(&select->avctx);
+        if (select->avctx) {
+            avcodec_close(select->avctx);
+            av_freep(&select->avctx);
+        }
     }
 }
 
@@ -404,17 +415,18 @@ AVFilter avfilter_vf_select = {
 
     .priv_size = sizeof(SelectContext),
 
-    .inputs    = (const AVFilterPad[]) {{ .name       = "default",
-                                    .type             = AVMEDIA_TYPE_VIDEO,
-                                    .get_video_buffer = ff_null_get_video_buffer,
-                                    .config_props     = config_input,
-                                    .start_frame      = start_frame,
-                                    .draw_slice       = draw_slice,
-                                    .end_frame        = end_frame },
-                                  { .name = NULL }},
-    .outputs   = (const AVFilterPad[]) {{ .name       = "default",
-                                    .type             = AVMEDIA_TYPE_VIDEO,
-                                    .poll_frame       = poll_frame,
-                                    .request_frame    = request_frame, },
-                                  { .name = NULL}},
+    .inputs    = (const AVFilterPad[]) {{ .name             = "default",
+                                          .type             = AVMEDIA_TYPE_VIDEO,
+                                          .get_video_buffer = ff_null_get_video_buffer,
+                                          .min_perms        = AV_PERM_PRESERVE,
+                                          .config_props     = config_input,
+                                          .start_frame      = start_frame,
+                                          .draw_slice       = draw_slice,
+                                          .end_frame        = end_frame },
+                                        { .name = NULL }},
+    .outputs   = (const AVFilterPad[]) {{ .name             = "default",
+                                          .type             = AVMEDIA_TYPE_VIDEO,
+                                          .poll_frame       = poll_frame,
+                                          .request_frame    = request_frame, },
+                                        { .name = NULL}},
 };

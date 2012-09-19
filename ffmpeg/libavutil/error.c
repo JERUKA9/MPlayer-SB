@@ -19,6 +19,7 @@
 #undef _GNU_SOURCE
 #include "avutil.h"
 #include "avstring.h"
+#include "common.h"
 
 struct error_entry {
     int num;
@@ -27,15 +28,17 @@ struct error_entry {
 };
 
 #define ERROR_TAG(tag) AVERROR_##tag, #tag
-struct error_entry error_entries[] = {
+static const struct error_entry error_entries[] = {
     { ERROR_TAG(BSF_NOT_FOUND),      "Bitstream filter not found"                     },
     { ERROR_TAG(BUG),                "Internal bug, should not have happened"         },
     { ERROR_TAG(BUG2),               "Internal bug, should not have happened"         },
+    { ERROR_TAG(BUFFER_TOO_SMALL),   "Buffer too small"                               },
     { ERROR_TAG(DECODER_NOT_FOUND),  "Decoder not found"                              },
     { ERROR_TAG(DEMUXER_NOT_FOUND),  "Demuxer not found"                              },
     { ERROR_TAG(ENCODER_NOT_FOUND),  "Encoder not found"                              },
     { ERROR_TAG(EOF),                "End of file"                                    },
     { ERROR_TAG(EXIT),               "Immediate exit requested"                       },
+    { ERROR_TAG(EXTERNAL),           "Generic error in an external library"           },
     { ERROR_TAG(FILTER_NOT_FOUND),   "Filter not found"                               },
     { ERROR_TAG(INVALIDDATA),        "Invalid data found when processing input"       },
     { ERROR_TAG(MUXER_NOT_FOUND),    "Muxer not found"                                },
@@ -49,7 +52,7 @@ struct error_entry error_entries[] = {
 int av_strerror(int errnum, char *errbuf, size_t errbuf_size)
 {
     int ret = 0, i;
-    struct error_entry *entry = NULL;
+    const struct error_entry *entry = NULL;
 
     for (i = 0; i < FF_ARRAY_ELEMS(error_entries); i++) {
         if (errnum == error_entries[i].num) {
@@ -81,7 +84,7 @@ int main(void)
     int i;
 
     for (i = 0; i < FF_ARRAY_ELEMS(error_entries); i++) {
-        struct error_entry *entry = &error_entries[i];
+        const struct error_entry *entry = &error_entries[i];
         printf("%d: %s [%s]\n", entry->num, av_err2str(entry->num), entry->tag);
     }
 

@@ -122,7 +122,7 @@ AVIOContext *avio_alloc_context(
 static void writeout(AVIOContext *s, const uint8_t *data, int len)
 {
     if (s->write_packet && !s->error){
-        int ret= s->write_packet(s->opaque, data, len);
+        int ret= s->write_packet(s->opaque, (uint8_t *)data, len);
         if(ret < 0){
             s->error = ret;
         }
@@ -389,7 +389,7 @@ static void fill_buffer(AVIOContext *s)
     int len= s->buffer_size - (dst - s->buffer);
     int max_buffer_size = s->max_packet_size ? s->max_packet_size : IO_BUFFER_SIZE;
 
-    /* can't fill the buffer without read_packet, just set EOF if appropiate */
+    /* can't fill the buffer without read_packet, just set EOF if appropriate */
     if (!s->read_packet && s->buf_ptr >= s->buf_end)
         s->eof_reached = 1;
 
@@ -485,6 +485,7 @@ int avio_read(AVIOContext *s, unsigned char *buf, int size)
                     break;
                 } else {
                     s->pos += len;
+                    s->bytes_read += len;
                     size -= len;
                     buf += len;
                     s->buf_ptr = s->buffer;
@@ -793,8 +794,9 @@ int avio_close(AVIOContext *s)
     if (!s)
         return 0;
 
+    avio_flush(s);
     h = s->opaque;
-    av_free(s->buffer);
+    av_freep(&s->buffer);
     if (!s->write_flag)
         av_log(s, AV_LOG_DEBUG, "Statistics: %"PRId64" bytes read, %d seeks\n", s->bytes_read, s->seek_count);
     av_free(s);

@@ -365,7 +365,12 @@ static int decode_header(SnowContext *s){
 
 static av_cold int decode_init(AVCodecContext *avctx)
 {
-    ff_snow_common_init(avctx);
+    int ret;
+
+    if ((ret = ff_snow_common_init(avctx)) < 0) {
+        ff_snow_common_end(avctx->priv_data);
+        return ret;
+    }
 
     return 0;
 }
@@ -401,13 +406,14 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     s->current_picture.pict_type= AV_PICTURE_TYPE_I; //FIXME I vs. P
     if(decode_header(s)<0)
         return -1;
-    ff_snow_common_init_after_header(avctx);
+    if ((res=ff_snow_common_init_after_header(avctx)) < 0)
+        return res;
 
     // realloc slice buffer for the case that spatial_decomposition_count changed
     ff_slice_buffer_destroy(&s->sb);
     if ((res = ff_slice_buffer_init(&s->sb, s->plane[0].height,
                                     (MB_SIZE >> s->block_max_depth) +
-                                    s->spatial_decomposition_count * 8 + 1,
+                                    s->spatial_decomposition_count * 11 + 1,
                                     s->plane[0].width,
                                     s->spatial_idwt_buffer)) < 0)
         return res;
@@ -461,7 +467,6 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
         {
         const int mb_h= s->b_height << s->block_max_depth;
         const int block_size = MB_SIZE >> s->block_max_depth;
-        const int block_w    = plane_index ? block_size>>s->chroma_h_shift : block_size;
         const int block_h    = plane_index ? block_size>>s->chroma_v_shift : block_size;
         int mb_y;
         DWTCompose cs[MAX_DECOMPOSITIONS];
@@ -569,7 +574,7 @@ static av_cold int decode_end(AVCodecContext *avctx)
 AVCodec ff_snow_decoder = {
     .name           = "snow",
     .type           = AVMEDIA_TYPE_VIDEO,
-    .id             = CODEC_ID_SNOW,
+    .id             = AV_CODEC_ID_SNOW,
     .priv_data_size = sizeof(SnowContext),
     .init           = decode_init,
     .close          = decode_end,

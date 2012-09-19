@@ -27,6 +27,7 @@
 
 #include "libavutil/audioconvert.h"
 #include "libavutil/avassert.h"
+#include "libavutil/common.h"
 #include "libavutil/opt.h"
 
 #include "audio.h"
@@ -75,13 +76,14 @@ typedef struct JoinBufferPriv {
 
 #define OFFSET(x) offsetof(JoinContext, x)
 #define A AV_OPT_FLAG_AUDIO_PARAM
+#define F AV_OPT_FLAG_FILTERING_PARAM
 static const AVOption join_options[] = {
-    { "inputs",         "Number of input streams.", OFFSET(inputs),             AV_OPT_TYPE_INT,    { 2 }, 1, INT_MAX,       A },
+    { "inputs",         "Number of input streams.", OFFSET(inputs),             AV_OPT_TYPE_INT,    { .i64 = 2 }, 1, INT_MAX,       A|F },
     { "channel_layout", "Channel layout of the "
-                        "output stream.",           OFFSET(channel_layout_str), AV_OPT_TYPE_STRING, {.str = "stereo"}, 0, 0, A },
+                        "output stream.",           OFFSET(channel_layout_str), AV_OPT_TYPE_STRING, {.str = "stereo"}, 0, 0, A|F },
     { "map",            "A comma-separated list of channels maps in the format "
                         "'input_stream.input_channel-output_channel.",
-                                                    OFFSET(map),                AV_OPT_TYPE_STRING,                 .flags = A },
+                                                    OFFSET(map),                AV_OPT_TYPE_STRING,                 .flags = A|F },
     { NULL },
 };
 
@@ -92,7 +94,7 @@ static const AVClass join_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-static void filter_samples(AVFilterLink *link, AVFilterBufferRef *buf)
+static int filter_samples(AVFilterLink *link, AVFilterBufferRef *buf)
 {
     AVFilterContext *ctx = link->dst;
     JoinContext       *s = ctx->priv;
@@ -104,6 +106,8 @@ static void filter_samples(AVFilterLink *link, AVFilterBufferRef *buf)
     av_assert0(i < ctx->nb_inputs);
     av_assert0(!s->input_frames[i]);
     s->input_frames[i] = buf;
+
+    return 0;
 }
 
 static int parse_maps(AVFilterContext *ctx)
@@ -184,17 +188,15 @@ static int parse_maps(AVFilterContext *ctx)
     return 0;
 }
 
-static int join_init(AVFilterContext *ctx, const char *args, void *opaque)
+static int join_init(AVFilterContext *ctx, const char *args)
 {
     JoinContext *s = ctx->priv;
     int ret, i;
 
     s->class = &join_class;
     av_opt_set_defaults(s);
-    if ((ret = av_set_options_string(s, args, "=", ":")) < 0) {
-        av_log(ctx, AV_LOG_ERROR, "Error parsing options string '%s'.\n", args);
+    if ((ret = av_set_options_string(s, args, "=", ":")) < 0)
         return ret;
-    }
 
     if (!(s->channel_layout = av_get_channel_layout(s->channel_layout_str))) {
         av_log(ctx, AV_LOG_ERROR, "Error parsing channel layout '%s'.\n",
@@ -246,7 +248,7 @@ static void join_uninit(AVFilterContext *ctx)
 
     for (i = 0; i < ctx->nb_inputs; i++) {
         av_freep(&ctx->input_pads[i].name);
-        avfilter_unref_buffer(s->input_frames[i]);
+        avfilter_unref_bufferp(&s->input_frames[i]);
     }
 
     av_freep(&s->channels);
@@ -400,7 +402,7 @@ static void join_free_buffer(AVFilterBuffer *buf)
         int i;
 
         for (i = 0; i < priv->nb_in_buffers; i++)
-            avfilter_unref_buffer(priv->in_buffers[i]);
+            avfilter_unref_bufferp(&priv->in_buffers[i]);
 
         av_freep(&priv->in_buffers);
         av_freep(&buf->priv);
@@ -419,7 +421,7 @@ static int join_request_frame(AVFilterLink *outlink)
     JoinBufferPriv *priv;
     int linesize   = INT_MAX;
     int perms      = ~0;
-    int nb_samples;
+    int nb_samples = 0;
     int i, j, ret;
 
     /* get a frame on each input */
@@ -448,6 +450,7 @@ static int join_request_frame(AVFilterLink *outlink)
         perms     &= cur_buf->perms;
     }
 
+    av_assert0(nb_samples > 0);
     buf = avfilter_get_audio_buffer_ref_from_arrays(s->data, linesize, perms,
                                                     nb_samples, outlink->format,
                                                     outlink->channel_layout);
@@ -467,11 +470,11 @@ static int join_request_frame(AVFilterLink *outlink)
     priv->nb_in_buffers = ctx->nb_inputs;
     buf->buf->priv      = priv;
 
-    ff_filter_samples(outlink, buf);
+    ret = ff_filter_samples(outlink, buf);
 
     memset(s->input_frames, 0, sizeof(*s->input_frames) * ctx->nb_inputs);
 
-    return 0;
+    return ret;
 
 fail:
     avfilter_unref_buffer(buf);
@@ -491,10 +494,11 @@ AVFilter avfilter_af_join = {
     .uninit         = join_uninit,
     .query_formats  = join_query_formats,
 
-    .inputs  = (const AVFilterPad[]){{ NULL }},
+    .inputs  = NULL,
     .outputs = (const AVFilterPad[]){{ .name          = "default",
                                        .type          = AVMEDIA_TYPE_AUDIO,
                                        .config_props  = join_config_output,
                                        .request_frame = join_request_frame, },
                                      { NULL }},
+    .priv_class = &join_class,
 };

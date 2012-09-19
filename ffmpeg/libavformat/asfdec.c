@@ -30,6 +30,7 @@
 #include "avformat.h"
 #include "internal.h"
 #include "avio_internal.h"
+#include "id3v2.h"
 #include "riff.h"
 #include "asf.h"
 #include "asfcrypt.h"
@@ -79,7 +80,7 @@ typedef struct {
 } ASFContext;
 
 static const AVOption options[] = {
-    {"no_resync_search", "Don't try to resynchronize by looking for a certain optional start code", offsetof(ASFContext, no_resync_search), AV_OPT_TYPE_INT, {.dbl = 0}, 0, 1, AV_OPT_FLAG_DECODING_PARAM },
+    {"no_resync_search", "Don't try to resynchronize by looking for a certain optional start code", offsetof(ASFContext, no_resync_search), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, AV_OPT_FLAG_DECODING_PARAM },
     { NULL },
 };
 
@@ -94,8 +95,8 @@ static const AVClass asf_class = {
 #include <assert.h>
 
 #define ASF_MAX_STREAMS 127
-#define FRAME_HEADER_SIZE 17
-// Fix Me! FRAME_HEADER_SIZE may be different.
+#define FRAME_HEADER_SIZE 16
+// Fix Me! FRAME_HEADER_SIZE may be different. (17 is known to be too large)
 
 #ifdef DEBUG
 static const ff_asf_guid stream_bitrate_guid = { /* (http://get.to/sdp) */
@@ -163,6 +164,101 @@ static int get_value(AVIOContext *pb, int type){
     }
 }
 
+/* MSDN claims that this should be "compatible with the ID3 frame, APIC",
+ * but in reality this is only loosely similar */
+static int asf_read_picture(AVFormatContext *s, int len)
+{
+    AVPacket pkt = { 0 };
+    const CodecMime *mime = ff_id3v2_mime_tags;
+    enum  AVCodecID      id = AV_CODEC_ID_NONE;
+    char mimetype[64];
+    uint8_t  *desc = NULL;
+    ASFStream *ast = NULL;
+    AVStream   *st = NULL;
+    int ret, type, picsize, desc_len;
+
+    /* type + picsize + mime + desc */
+    if (len < 1 + 4 + 2 + 2) {
+        av_log(s, AV_LOG_ERROR, "Invalid attached picture size: %d.\n", len);
+        return AVERROR_INVALIDDATA;
+    }
+
+    /* picture type */
+    type = avio_r8(s->pb);
+    len--;
+    if (type >= FF_ARRAY_ELEMS(ff_id3v2_picture_types) || type < 0) {
+        av_log(s, AV_LOG_WARNING, "Unknown attached picture type: %d.\n", type);
+        type = 0;
+    }
+
+    /* picture data size */
+    picsize = avio_rl32(s->pb);
+    len -= 4;
+
+    /* picture MIME type */
+    len -= avio_get_str16le(s->pb, len, mimetype, sizeof(mimetype));
+    while (mime->id != AV_CODEC_ID_NONE) {
+        if (!strncmp(mime->str, mimetype, sizeof(mimetype))) {
+            id = mime->id;
+            break;
+        }
+        mime++;
+    }
+    if (id == AV_CODEC_ID_NONE) {
+        av_log(s, AV_LOG_ERROR, "Unknown attached picture mimetype: %s.\n",
+               mimetype);
+        return 0;
+    }
+
+    if (picsize >= len) {
+        av_log(s, AV_LOG_ERROR, "Invalid attached picture data size: %d >= %d.\n",
+               picsize, len);
+        return AVERROR_INVALIDDATA;
+    }
+
+    /* picture description */
+    desc_len = (len - picsize) * 2 + 1;
+    desc     = av_malloc(desc_len);
+    if (!desc)
+        return AVERROR(ENOMEM);
+    len -= avio_get_str16le(s->pb, len - picsize, desc, desc_len);
+
+    ret = av_get_packet(s->pb, &pkt, picsize);
+    if (ret < 0)
+        goto fail;
+
+    st = avformat_new_stream(s, NULL);
+    ast = av_mallocz(sizeof(*ast));
+    if (!st || !ast) {
+        ret = AVERROR(ENOMEM);
+        goto fail;
+    }
+    st->priv_data = ast;
+
+    st->disposition      |= AV_DISPOSITION_ATTACHED_PIC;
+    st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
+    st->codec->codec_id   = id;
+
+    st->attached_pic      = pkt;
+    st->attached_pic.stream_index = st->index;
+    st->attached_pic.flags |= AV_PKT_FLAG_KEY;
+
+    if (*desc)
+        av_dict_set(&st->metadata, "title", desc, AV_DICT_DONT_STRDUP_VAL);
+    else
+        av_freep(&desc);
+
+    av_dict_set(&st->metadata, "comment", ff_id3v2_picture_types[type], 0);
+
+    return 0;
+
+fail:
+    av_freep(&ast);
+    av_freep(&desc);
+    av_free_packet(&pkt);
+    return ret;
+}
+
 static void get_tag(AVFormatContext *s, const char *key, int type, int len)
 {
     char *value;
@@ -183,6 +279,9 @@ static void get_tag(AVFormatContext *s, const char *key, int type, int len)
     } else if (type > 1 && type <= 5) {  // boolean or DWORD or QWORD or WORD
         uint64_t num = get_value(s->pb, type);
         snprintf(value, len, "%"PRIu64, num);
+    } else if (type == 1 && !strcmp(key, "WM/Picture")) { // handle cover art
+        asf_read_picture(s, len);
+        goto finish;
     } else {
         av_log(s, AV_LOG_DEBUG, "Unsupported value type %d in tag %s.\n", type, key);
         goto finish;
@@ -263,7 +362,7 @@ static int asf_read_stream_properties(AVFormatContext *s, int64_t size)
         type = AVMEDIA_TYPE_VIDEO;
     } else if (!ff_guidcmp(&g, &ff_asf_jfif_media)) {
         type = AVMEDIA_TYPE_VIDEO;
-        st->codec->codec_id = CODEC_ID_MJPEG;
+        st->codec->codec_id = AV_CODEC_ID_MJPEG;
     } else if (!ff_guidcmp(&g, &ff_asf_command_stream)) {
         type = AVMEDIA_TYPE_DATA;
     } else if (!ff_guidcmp(&g, &ff_asf_ext_stream_embed_stream_header)) {
@@ -307,7 +406,7 @@ static int asf_read_stream_properties(AVFormatContext *s, int64_t size)
             st->request_probe= 1;
             st->codec->codec_tag = 0;
         }
-        if (st->codec->codec_id == CODEC_ID_AAC) {
+        if (st->codec->codec_id == AV_CODEC_ID_AAC) {
             st->need_parsing = AVSTREAM_PARSE_NONE;
         } else {
             st->need_parsing = AVSTREAM_PARSE_FULL;
@@ -376,7 +475,7 @@ static int asf_read_stream_properties(AVFormatContext *s, int64_t size)
             av_freep(&st->codec->extradata);
             st->codec->extradata_size=0;
         }
-        if(st->codec->codec_id == CODEC_ID_H264)
+        if(st->codec->codec_id == AV_CODEC_ID_H264)
             st->need_parsing = AVSTREAM_PARSE_FULL_ONCE;
     }
     pos2 = avio_tell(pb);
@@ -677,12 +776,12 @@ static int asf_read_header(AVFormatContext *s)
             if (!st->codec->bit_rate)
                 st->codec->bit_rate = asf->stream_bitrates[i];
             if (asf->dar[i].num > 0 && asf->dar[i].den > 0){
-                av_reduce(&st->sample_aspect_ratio.num,
-                          &st->sample_aspect_ratio.den,
+                av_reduce(&st->sample_aspect_ratio.den,
+                          &st->sample_aspect_ratio.num,
                           asf->dar[i].num, asf->dar[i].den, INT_MAX);
             } else if ((asf->dar[0].num > 0) && (asf->dar[0].den > 0) && (st->codec->codec_type==AVMEDIA_TYPE_VIDEO)) // Use ASF container value if the stream doesn't AR set.
-                av_reduce(&st->sample_aspect_ratio.num,
-                          &st->sample_aspect_ratio.den,
+                av_reduce(&st->sample_aspect_ratio.den,
+                          &st->sample_aspect_ratio.num,
                           asf->dar[0].num, asf->dar[0].den, INT_MAX);
 
 //av_log(s, AV_LOG_INFO, "i=%d, st->codec->codec_type:%d, dar %d:%d sar=%d:%d\n", i, st->codec->codec_type, dar[i].num, dar[i].den, st->sample_aspect_ratio.num, st->sample_aspect_ratio.den);
@@ -1048,7 +1147,7 @@ static int ff_asf_parse_packet(AVFormatContext *s, AVIOContext *pb, AVPacket *pk
         /* test if whole packet is read */
         if (asf_st->frag_offset == asf_st->pkt.size) {
             //workaround for macroshit radio DVR-MS files
-            if(   s->streams[asf->stream_index]->codec->codec_id == CODEC_ID_MPEG2VIDEO
+            if(   s->streams[asf->stream_index]->codec->codec_id == AV_CODEC_ID_MPEG2VIDEO
                && asf_st->pkt.size > 100){
                 int i;
                 for(i=0; i<asf_st->pkt.size && !asf_st->pkt.data[i]; i++);
@@ -1263,7 +1362,7 @@ static void asf_build_simple_index(AVFormatContext *s, int stream_index)
             last_pos=pos;
             }
         }
-        asf->index_read= ict > 0;
+        asf->index_read= ict > 1;
     }
     avio_seek(s->pb, current_pos, SEEK_SET);
 }
@@ -1311,7 +1410,7 @@ static int asf_read_seek(AVFormatContext *s, int stream_index, int64_t pts, int 
 
 AVInputFormat ff_asf_demuxer = {
     .name           = "asf",
-    .long_name      = NULL_IF_CONFIG_SMALL("ASF format"),
+    .long_name      = NULL_IF_CONFIG_SMALL("ASF (Advanced / Active Streaming Format)"),
     .priv_data_size = sizeof(ASFContext),
     .read_probe     = asf_probe,
     .read_header    = asf_read_header,

@@ -19,6 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/common.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/rational.h"
 #include "libavutil/audioconvert.h"
@@ -28,6 +29,7 @@
 #include "avfilter.h"
 #include "formats.h"
 #include "internal.h"
+#include "audio.h"
 
 char *ff_get_ref_perms_string(char *buf, size_t buf_size, int perms)
 {
@@ -154,7 +156,14 @@ void avfilter_link_free(AVFilterLink **link)
     if ((*link)->pool)
         ff_free_pool((*link)->pool);
 
+    avfilter_unref_bufferp(&(*link)->partial_buf);
+
     av_freep(link);
+}
+
+void avfilter_link_set_closed(AVFilterLink *link, int closed)
+{
+    link->closed = closed;
 }
 
 int avfilter_insert_filter(AVFilterLink *link, AVFilterContext *filt,
@@ -163,7 +172,7 @@ int avfilter_insert_filter(AVFilterLink *link, AVFilterContext *filt,
     int ret;
     unsigned dstpad_idx = link->dstpad - link->dst->input_pads;
 
-    av_log(link->dst, AV_LOG_INFO, "auto-inserting filter '%s' "
+    av_log(link->dst, AV_LOG_VERBOSE, "auto-inserting filter '%s' "
            "between the filter '%s' and the filter '%s'\n",
            filt->name, link->src->name, link->dst->name);
 
@@ -268,6 +277,8 @@ int avfilter_config_links(AVFilterContext *filter)
                         link->sample_rate = inlink->sample_rate;
                     if (!link->time_base.num && !link->time_base.den)
                         link->time_base = inlink->time_base;
+                    if (!link->channel_layout)
+                        link->channel_layout = inlink->channel_layout;
                 } else if (!link->sample_rate) {
                     av_log(link->src, AV_LOG_ERROR,
                            "Audio source filters must set their output link's "
@@ -320,13 +331,24 @@ void ff_tlog_link(void *ctx, AVFilterLink *link, int end)
 
 int ff_request_frame(AVFilterLink *link)
 {
+    int ret = -1;
     FF_TPRINTF_START(NULL, request_frame); ff_tlog_link(NULL, link, 1);
 
+    if (link->closed)
+        return AVERROR_EOF;
     if (link->srcpad->request_frame)
-        return link->srcpad->request_frame(link);
+        ret = link->srcpad->request_frame(link);
     else if (link->src->inputs[0])
-        return ff_request_frame(link->src->inputs[0]);
-    else return -1;
+        ret = ff_request_frame(link->src->inputs[0]);
+    if (ret == AVERROR_EOF && link->partial_buf) {
+        AVFilterBufferRef *pbuf = link->partial_buf;
+        link->partial_buf = NULL;
+        ff_filter_samples_framed(link, pbuf);
+        return 0;
+    }
+    if (ret == AVERROR_EOF)
+        link->closed = 1;
+    return ret;
 }
 
 int ff_poll_frame(AVFilterLink *link)
@@ -351,7 +373,8 @@ void ff_update_link_current_pts(AVFilterLink *link, int64_t pts)
 {
     if (pts == AV_NOPTS_VALUE)
         return;
-    link->current_pts =  pts; /* TODO use duration */
+    link->current_pts = av_rescale_q(pts, link->time_base, AV_TIME_BASE_Q);
+    /* TODO use duration */
     if (link->graph && link->age_index >= 0)
         ff_avfilter_graph_update_heap(link->graph, link);
 }
@@ -413,6 +436,9 @@ static int pad_count(const AVFilterPad *pads)
 {
     int count;
 
+    if (!pads)
+        return 0;
+
     for(count = 0; pads->name; count ++) pads ++;
     return count;
 }
@@ -423,12 +449,47 @@ static const char *default_filter_name(void *filter_ctx)
     return ctx->name ? ctx->name : ctx->filter->name;
 }
 
+static void *filter_child_next(void *obj, void *prev)
+{
+    AVFilterContext *ctx = obj;
+    if (!prev && ctx->filter && ctx->filter->priv_class)
+        return ctx->priv;
+    return NULL;
+}
+
+static const AVClass *filter_child_class_next(const AVClass *prev)
+{
+    AVFilter **filter_ptr = NULL;
+
+    /* find the filter that corresponds to prev */
+    while (prev && *(filter_ptr = av_filter_next(filter_ptr)))
+        if ((*filter_ptr)->priv_class == prev)
+            break;
+
+    /* could not find filter corresponding to prev */
+    if (prev && !(*filter_ptr))
+        return NULL;
+
+    /* find next filter with specific options */
+    while (*(filter_ptr = av_filter_next(filter_ptr)))
+        if ((*filter_ptr)->priv_class)
+            return (*filter_ptr)->priv_class;
+    return NULL;
+}
+
 static const AVClass avfilter_class = {
     .class_name = "AVFilter",
     .item_name  = default_filter_name,
     .version    = LIBAVUTIL_VERSION_INT,
     .category   = AV_CLASS_CATEGORY_FILTER,
+    .child_next = filter_child_next,
+    .child_class_next = filter_child_class_next,
 };
+
+const AVClass *avfilter_get_class(void)
+{
+    return &avfilter_class;
+}
 
 int avfilter_open(AVFilterContext **filter_ctx, AVFilter *filter, const char *inst_name)
 {
@@ -546,8 +607,10 @@ int avfilter_init_filter(AVFilterContext *filter, const char *args, void *opaque
 {
     int ret=0;
 
-    if (filter->filter->init)
-        ret = filter->filter->init(filter, args, opaque);
+    if (filter->filter->init_opaque)
+        ret = filter->filter->init_opaque(filter, args, opaque);
+    else if (filter->filter->init)
+        ret = filter->filter->init(filter, args);
     return ret;
 }
 
@@ -560,38 +623,3 @@ enum AVMediaType avfilter_pad_get_type(AVFilterPad *pads, int pad_idx)
 {
     return pads[pad_idx].type;
 }
-
-#if FF_API_DEFAULT_CONFIG_OUTPUT_LINK
-void avfilter_insert_pad(unsigned idx, unsigned *count, size_t padidx_off,
-                         AVFilterPad **pads, AVFilterLink ***links,
-                         AVFilterPad *newpad)
-{
-    ff_insert_pad(idx, count, padidx_off, pads, links, newpad);
-}
-void avfilter_insert_inpad(AVFilterContext *f, unsigned index,
-                           AVFilterPad *p)
-{
-    ff_insert_pad(index, &f->nb_inputs, offsetof(AVFilterLink, dstpad),
-                  &f->input_pads, &f->inputs, p);
-#if FF_API_FOO_COUNT
-    f->input_count = f->nb_inputs;
-#endif
-}
-void avfilter_insert_outpad(AVFilterContext *f, unsigned index,
-                            AVFilterPad *p)
-{
-    ff_insert_pad(index, &f->nb_outputs, offsetof(AVFilterLink, srcpad),
-                  &f->output_pads, &f->outputs, p);
-#if FF_API_FOO_COUNT
-    f->output_count = f->nb_outputs;
-#endif
-}
-int avfilter_poll_frame(AVFilterLink *link)
-{
-    return ff_poll_frame(link);
-}
-int avfilter_request_frame(AVFilterLink *link)
-{
-    return ff_request_frame(link);
-}
-#endif

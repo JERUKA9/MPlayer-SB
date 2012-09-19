@@ -56,6 +56,7 @@ typedef struct {
     int multiple_requests;  /**< A flag which indicates if we use persistent connections. */
     uint8_t *post_data;
     int post_datalen;
+    int is_akamai;
 } HTTPContext;
 
 #define OFFSET(x) offsetof(HTTPContext, x)
@@ -63,10 +64,10 @@ typedef struct {
 #define E AV_OPT_FLAG_ENCODING_PARAM
 #define DEC AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
-{"chunked_post", "use chunked transfer-encoding for posts", OFFSET(chunked_post), AV_OPT_TYPE_INT, {.dbl = 1}, 0, 1, E },
+{"chunked_post", "use chunked transfer-encoding for posts", OFFSET(chunked_post), AV_OPT_TYPE_INT, {.i64 = 1}, 0, 1, E },
 {"headers", "custom HTTP headers, can override built in default headers", OFFSET(headers), AV_OPT_TYPE_STRING, { 0 }, 0, 0, D|E },
 {"user-agent", "override User-Agent header", OFFSET(user_agent), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC},
-{"multiple_requests", "use persistent connections", OFFSET(multiple_requests), AV_OPT_TYPE_INT, {.dbl = 0}, 0, 1, D|E },
+{"multiple_requests", "use persistent connections", OFFSET(multiple_requests), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, D|E },
 {"post_data", "custom HTTP post data", OFFSET(post_data), AV_OPT_TYPE_BINARY, .flags = D|E },
 {NULL}
 };
@@ -317,7 +318,8 @@ static int process_line(URLContext *h, char *line, int line_count,
                 if ((slash = strchr(p, '/')) && strlen(slash) > 0)
                     s->filesize = strtoll(slash+1, NULL, 10);
             }
-            h->is_streamed = 0; /* we _can_ in fact seek */
+            if (!s->is_akamai || s->filesize != 2147483647)
+                h->is_streamed = 0; /* we _can_ in fact seek */
         } else if (!av_strcasecmp(tag, "Accept-Ranges") && !strncmp(p, "bytes", 5)) {
             h->is_streamed = 0;
         } else if (!av_strcasecmp (tag, "Transfer-Encoding") && !av_strncasecmp(p, "chunked", 7)) {
@@ -332,6 +334,8 @@ static int process_line(URLContext *h, char *line, int line_count,
         } else if (!av_strcasecmp (tag, "Connection")) {
             if (!strcmp(p, "close"))
                 s->willclose = 1;
+        } else if (!av_strcasecmp (tag, "Server") && !av_strcasecmp (p, "AkamaiGHost")) {
+            s->is_akamai = 1;
         }
     }
     return 1;

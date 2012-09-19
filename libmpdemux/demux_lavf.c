@@ -105,9 +105,13 @@ static int64_t mp_seek(void *opaque, int64_t pos, int whence) {
         pos += stream->end_pos;
     else if(whence == SEEK_SET)
         pos += stream->start_pos;
-    else if(whence == AVSEEK_SIZE && stream->end_pos > 0)
+    else if(whence == AVSEEK_SIZE && stream->end_pos > 0) {
+        off_t size;
+        stream_control(stream, STREAM_CTRL_GET_SIZE, &size);
+        if (size > stream->end_pos)
+            stream->end_pos = size;
         return stream->end_pos - stream->start_pos;
-    else
+    } else
         return -1;
 
     if(pos<0)
@@ -423,7 +427,8 @@ static void handle_stream(demuxer_t *demuxer, AVFormatContext *avfc, int i) {
         case AVMEDIA_TYPE_SUBTITLE:{
             sh_sub_t* sh_sub;
             char type;
-            if(codec->codec_id == CODEC_ID_TEXT)
+            if(codec->codec_id == CODEC_ID_TEXT ||
+               codec->codec_id == AV_CODEC_ID_SUBRIP)
                 type = 't';
             else if(codec->codec_id == CODEC_ID_MOV_TEXT)
                 type = 'm';
@@ -651,10 +656,10 @@ static int demux_lavf_fill_buffer(demuxer_t *demux, demux_stream_t *dsds){
     if(pkt.pts != AV_NOPTS_VALUE){
         dp->pts=pkt.pts * av_q2d(priv->avfc->streams[id]->time_base);
         priv->last_pts= dp->pts * AV_TIME_BASE;
-        // always set endpts for subtitles, even if AV_PKT_FLAG_KEY is not set,
-        // otherwise they will stay on screen to long if e.g. ASS is demuxed from mkv
-        if((ds == demux->sub || (pkt.flags & AV_PKT_FLAG_KEY)) &&
-           pkt.convergence_duration > 0)
+        if(pkt.duration > 0)
+            dp->endpts = dp->pts + pkt.duration * av_q2d(priv->avfc->streams[id]->time_base);
+        /* subtitle durations are sometimes stored in convergence_duration */
+        if(ds == demux->sub && pkt.convergence_duration > 0)
             dp->endpts = dp->pts + pkt.convergence_duration * av_q2d(priv->avfc->streams[id]->time_base);
     }
     dp->pos=demux->filepos;
@@ -808,7 +813,7 @@ redo:
                             prog->aid = program->stream_index[i];
                         break;
                     case AVMEDIA_TYPE_SUBTITLE:
-                        if(prog->sid == -2 && priv->avfc->streams[program->stream_index[i]]->codec->codec_id == CODEC_ID_TEXT)
+                        if(prog->sid == -2)
                             prog->sid = program->stream_index[i];
                         break;
                 }

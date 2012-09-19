@@ -84,7 +84,7 @@ static int init_filters(const char *filters_descr)
     char args[512];
     int ret;
     AVFilter *abuffersrc  = avfilter_get_by_name("abuffer");
-    AVFilter *abuffersink = avfilter_get_by_name("abuffersink");
+    AVFilter *abuffersink = avfilter_get_by_name("ffabuffersink");
     AVFilterInOut *outputs = avfilter_inout_alloc();
     AVFilterInOut *inputs  = avfilter_inout_alloc();
     const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_S16, -1 };
@@ -195,7 +195,6 @@ int main(int argc, char **argv)
             avcodec_get_frame_defaults(&frame);
             got_frame = 0;
             ret = avcodec_decode_audio4(dec_ctx, &frame, &got_frame, &packet);
-            av_free_packet(&packet);
             if (ret < 0) {
                 av_log(NULL, AV_LOG_ERROR, "Error decoding audio\n");
                 continue;
@@ -222,6 +221,7 @@ int main(int argc, char **argv)
                 }
             }
         }
+        av_free_packet(&packet);
     }
 end:
     avfilter_graph_free(&filter_graph);

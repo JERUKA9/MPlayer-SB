@@ -29,10 +29,10 @@
 #include "formats.h"
 #include "internal.h"
 #include "video.h"
-#include "vsrc_buffer.h"
 #include "avcodec.h"
 
 #include "libavutil/audioconvert.h"
+#include "libavutil/common.h"
 #include "libavutil/fifo.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/opt.h"
@@ -44,6 +44,7 @@ typedef struct {
     AVRational        time_base;     ///< time_base to set in the output link
     AVRational        frame_rate;    ///< frame_rate to set in the output link
     unsigned          nb_failed_requests;
+    unsigned          warning_limit;
 
     /* video only */
     int               w, h;
@@ -74,44 +75,6 @@ typedef struct {
         return AVERROR(EINVAL);\
     }
 
-static AVFilterBufferRef *copy_buffer_ref(AVFilterContext *ctx,
-                                          AVFilterBufferRef *ref)
-{
-    AVFilterLink *outlink = ctx->outputs[0];
-    AVFilterBufferRef *buf;
-    int channels;
-
-    switch (outlink->type) {
-
-    case AVMEDIA_TYPE_VIDEO:
-        buf = ff_get_video_buffer(outlink, AV_PERM_WRITE,
-                                        ref->video->w, ref->video->h);
-        if(!buf)
-            return NULL;
-        av_image_copy(buf->data, buf->linesize,
-                      (void*)ref->data, ref->linesize,
-                      ref->format, ref->video->w, ref->video->h);
-        break;
-
-    case AVMEDIA_TYPE_AUDIO:
-        buf = ff_get_audio_buffer(outlink, AV_PERM_WRITE,
-                                        ref->audio->nb_samples);
-        if(!buf)
-            return NULL;
-        channels = av_get_channel_layout_nb_channels(ref->audio->channel_layout);
-        av_samples_copy(buf->extended_data, ref->buf->extended_data,
-                        0, 0, ref->audio->nb_samples,
-                        channels,
-                        ref->format);
-        break;
-
-    default:
-        return NULL;
-    }
-    avfilter_copy_buffer_ref_props(buf, ref);
-    return buf;
-}
-
 int av_buffersrc_add_frame(AVFilterContext *buffer_src,
                            const AVFrame *frame, int flags)
 {
@@ -121,16 +84,8 @@ int av_buffersrc_add_frame(AVFilterContext *buffer_src,
     if (!frame) /* NULL for EOF */
         return av_buffersrc_add_ref(buffer_src, NULL, flags);
 
-    switch (buffer_src->outputs[0]->type) {
-    case AVMEDIA_TYPE_VIDEO:
-        picref = avfilter_get_video_buffer_ref_from_frame(frame, AV_PERM_WRITE);
-        break;
-    case AVMEDIA_TYPE_AUDIO:
-        picref = avfilter_get_audio_buffer_ref_from_frame(frame, AV_PERM_WRITE);
-        break;
-    default:
-        return AVERROR(ENOSYS);
-    }
+    picref = avfilter_get_buffer_ref_from_frame(buffer_src->outputs[0]->type,
+                                                frame, AV_PERM_WRITE);
     if (!picref)
         return AVERROR(ENOMEM);
     ret = av_buffersrc_add_ref(buffer_src, picref, flags);
@@ -139,7 +94,7 @@ int av_buffersrc_add_frame(AVFilterContext *buffer_src,
     return ret;
 }
 
-int av_buffersrc_write_frame(AVFilterContext *buffer_filter, AVFrame *frame)
+int av_buffersrc_write_frame(AVFilterContext *buffer_filter, const AVFrame *frame)
 {
     return av_buffersrc_add_frame(buffer_filter, frame, 0);
 }
@@ -175,7 +130,7 @@ int av_buffersrc_add_ref(AVFilterContext *s, AVFilterBufferRef *buf, int flags)
         }
     }
     if (!(flags & AV_BUFFERSRC_FLAG_NO_COPY))
-        to_free = buf = copy_buffer_ref(s, buf);
+        to_free = buf = ff_copy_buffer_ref(s->outputs[0], buf);
     if(!buf)
         return -1;
 
@@ -184,14 +139,28 @@ int av_buffersrc_add_ref(AVFilterContext *s, AVFilterBufferRef *buf, int flags)
         return ret;
     }
     c->nb_failed_requests = 0;
+    if (c->warning_limit &&
+        av_fifo_size(c->fifo) / sizeof(buf) >= c->warning_limit) {
+        av_log(s, AV_LOG_WARNING,
+               "%d buffers queued in %s, something may be wrong.\n",
+               c->warning_limit,
+               (char *)av_x_if_null(s->name, s->filter->name));
+        c->warning_limit *= 10;
+    }
+
+    if ((flags & AV_BUFFERSRC_FLAG_PUSH))
+        if ((ret = s->output_pads[0].request_frame(s->outputs[0])) < 0)
+            return ret;
 
     return 0;
 }
 
+#ifdef FF_API_BUFFERSRC_BUFFER
 int av_buffersrc_buffer(AVFilterContext *s, AVFilterBufferRef *buf)
 {
     return av_buffersrc_add_ref(s, buf, AV_BUFFERSRC_FLAG_NO_COPY);
 }
+#endif
 
 unsigned av_buffersrc_get_nb_failed_requests(AVFilterContext *buffer_src)
 {
@@ -199,21 +168,21 @@ unsigned av_buffersrc_get_nb_failed_requests(AVFilterContext *buffer_src)
 }
 
 #define OFFSET(x) offsetof(BufferSourceContext, x)
-#define V AV_OPT_FLAG_VIDEO_PARAM
+#define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
 static const AVOption buffer_options[] = {
-    { "time_base",      NULL, OFFSET(time_base),           AV_OPT_TYPE_RATIONAL,   { 0 }, 0, INT_MAX, V },
-    { "frame_rate",     NULL, OFFSET(frame_rate),          AV_OPT_TYPE_RATIONAL,   { 0 }, 0, INT_MAX, V },
-    { "video_size",     NULL, OFFSET(w),                   AV_OPT_TYPE_IMAGE_SIZE,           .flags = V },
-    { "pix_fmt",        NULL, OFFSET(pix_fmt),             AV_OPT_TYPE_PIXEL_FMT,            .flags = V },
-    { "pixel_aspect",   NULL, OFFSET(pixel_aspect),        AV_OPT_TYPE_RATIONAL,   { 0 }, 0, INT_MAX, V },
-    { "sws_param",      NULL, OFFSET(sws_param),           AV_OPT_TYPE_STRING,               .flags = V },
+    { "time_base",      NULL, OFFSET(time_base),           AV_OPT_TYPE_RATIONAL,   { .dbl = 0 }, 0, INT_MAX, FLAGS },
+    { "frame_rate",     NULL, OFFSET(frame_rate),          AV_OPT_TYPE_RATIONAL,   { .dbl = 0 }, 0, INT_MAX, FLAGS },
+    { "video_size",     NULL, OFFSET(w),                   AV_OPT_TYPE_IMAGE_SIZE, .flags = FLAGS },
+    { "pix_fmt",        NULL, OFFSET(pix_fmt),             AV_OPT_TYPE_PIXEL_FMT,  .flags = FLAGS },
+    { "pixel_aspect",   NULL, OFFSET(pixel_aspect),        AV_OPT_TYPE_RATIONAL,   { .dbl = 0 }, 0, INT_MAX, FLAGS },
+    { "sws_param",      NULL, OFFSET(sws_param),           AV_OPT_TYPE_STRING,     .flags = FLAGS },
     { NULL },
 };
-#undef V
+#undef FLAGS
 
 AVFILTER_DEFINE_CLASS(buffer);
 
-static av_cold int init_video(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init_video(AVFilterContext *ctx, const char *args)
 {
     BufferSourceContext *c = ctx->priv;
     char pix_fmt_str[128], sws_param[256] = "", *colon, *equal;
@@ -230,10 +199,8 @@ static av_cold int init_video(AVFilterContext *ctx, const char *args, void *opaq
     if (equal && (!colon || equal < colon)) {
         av_opt_set_defaults(c);
         ret = av_set_options_string(c, args, "=", ":");
-        if (ret < 0) {
-            av_log(ctx, AV_LOG_ERROR, "Error parsing options string: %s\n", args);
+        if (ret < 0)
             goto fail;
-        }
     } else {
     if ((n = sscanf(args, "%d:%d:%127[^:]:%d:%d:%d:%d:%255c", &c->w, &c->h, pix_fmt_str,
                     &c->time_base.num, &c->time_base.den,
@@ -258,10 +225,11 @@ static av_cold int init_video(AVFilterContext *ctx, const char *args, void *opaq
         goto fail;
     }
 
-    av_log(ctx, AV_LOG_INFO, "w:%d h:%d pixfmt:%s tb:%d/%d fr:%d/%d sar:%d/%d sws_param:%s\n",
+    av_log(ctx, AV_LOG_VERBOSE, "w:%d h:%d pixfmt:%s tb:%d/%d fr:%d/%d sar:%d/%d sws_param:%s\n",
            c->w, c->h, av_pix_fmt_descriptors[c->pix_fmt].name,
            c->time_base.num, c->time_base.den, c->frame_rate.num, c->frame_rate.den,
            c->pixel_aspect.num, c->pixel_aspect.den, (char *)av_x_if_null(c->sws_param, ""));
+    c->warning_limit = 100;
     return 0;
 
 fail:
@@ -269,18 +237,18 @@ fail:
     return ret;
 }
 
-#define A AV_OPT_FLAG_AUDIO_PARAM
+#define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_AUDIO_PARAM
 static const AVOption abuffer_options[] = {
-    { "time_base",      NULL, OFFSET(time_base),           AV_OPT_TYPE_RATIONAL, { 0 }, 0, INT_MAX, A },
-    { "sample_rate",    NULL, OFFSET(sample_rate),         AV_OPT_TYPE_INT,      { 0 }, 0, INT_MAX, A },
-    { "sample_fmt",     NULL, OFFSET(sample_fmt_str),      AV_OPT_TYPE_STRING,             .flags = A },
-    { "channel_layout", NULL, OFFSET(channel_layout_str),  AV_OPT_TYPE_STRING,             .flags = A },
+    { "time_base",      NULL, OFFSET(time_base),           AV_OPT_TYPE_RATIONAL, { .dbl = 0 }, 0, INT_MAX, FLAGS },
+    { "sample_rate",    NULL, OFFSET(sample_rate),         AV_OPT_TYPE_INT,      { .i64 = 0 }, 0, INT_MAX, FLAGS },
+    { "sample_fmt",     NULL, OFFSET(sample_fmt_str),      AV_OPT_TYPE_STRING, .flags = FLAGS },
+    { "channel_layout", NULL, OFFSET(channel_layout_str),  AV_OPT_TYPE_STRING, .flags = FLAGS },
     { NULL },
 };
 
 AVFILTER_DEFINE_CLASS(abuffer);
 
-static av_cold int init_audio(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init_audio(AVFilterContext *ctx, const char *args)
 {
     BufferSourceContext *s = ctx->priv;
     int ret = 0;
@@ -288,10 +256,8 @@ static av_cold int init_audio(AVFilterContext *ctx, const char *args, void *opaq
     s->class = &abuffer_class;
     av_opt_set_defaults(s);
 
-    if ((ret = av_set_options_string(s, args, "=", ":")) < 0) {
-        av_log(ctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+    if ((ret = av_set_options_string(s, args, "=", ":")) < 0)
         goto fail;
-    }
 
     s->sample_fmt = av_get_sample_fmt(s->sample_fmt_str);
     if (s->sample_fmt == AV_SAMPLE_FMT_NONE) {
@@ -317,9 +283,11 @@ static av_cold int init_audio(AVFilterContext *ctx, const char *args, void *opaq
     if (!s->time_base.num)
         s->time_base = (AVRational){1, s->sample_rate};
 
-    av_log(ctx, AV_LOG_VERBOSE, "tb:%d/%d samplefmt:%s samplerate: %d "
-           "ch layout:%s\n", s->time_base.num, s->time_base.den, s->sample_fmt_str,
+    av_log(ctx, AV_LOG_VERBOSE,
+           "tb:%d/%d samplefmt:%s samplerate:%d chlayout:%s\n",
+           s->time_base.num, s->time_base.den, s->sample_fmt_str,
            s->sample_rate, s->channel_layout_str);
+    s->warning_limit = 100;
 
 fail:
     av_opt_free(s);
@@ -395,6 +363,7 @@ static int request_frame(AVFilterLink *link)
 {
     BufferSourceContext *c = link->src->priv;
     AVFilterBufferRef *buf;
+    int ret = 0;
 
     if (!av_fifo_size(c->fifo)) {
         if (c->eof)
@@ -406,20 +375,20 @@ static int request_frame(AVFilterLink *link)
 
     switch (link->type) {
     case AVMEDIA_TYPE_VIDEO:
-        ff_start_frame(link, avfilter_ref_buffer(buf, ~0));
-        ff_draw_slice(link, 0, link->h, 1);
-        ff_end_frame(link);
+        if ((ret = ff_start_frame(link, buf)) < 0 ||
+            (ret = ff_draw_slice(link, 0, link->h, 1)) < 0 ||
+            (ret = ff_end_frame(link)) < 0)
+            return ret;
         break;
     case AVMEDIA_TYPE_AUDIO:
-        ff_filter_samples(link, avfilter_ref_buffer(buf, ~0));
+        ret = ff_filter_samples(link, buf);
         break;
     default:
+        avfilter_unref_bufferp(&buf);
         return AVERROR(EINVAL);
     }
 
-    avfilter_unref_buffer(buf);
-
-    return 0;
+    return ret;
 }
 
 static int poll_frame(AVFilterLink *link)
@@ -440,13 +409,14 @@ AVFilter avfilter_vsrc_buffer = {
     .init      = init_video,
     .uninit    = uninit,
 
-    .inputs    = (AVFilterPad[]) {{ .name = NULL }},
-    .outputs   = (AVFilterPad[]) {{ .name            = "default",
-                                    .type            = AVMEDIA_TYPE_VIDEO,
-                                    .request_frame   = request_frame,
-                                    .poll_frame      = poll_frame,
-                                    .config_props    = config_props, },
-                                  { .name = NULL}},
+    .inputs    = NULL,
+    .outputs   = (const AVFilterPad[]) {{ .name            = "default",
+                                          .type            = AVMEDIA_TYPE_VIDEO,
+                                          .request_frame   = request_frame,
+                                          .poll_frame      = poll_frame,
+                                          .config_props    = config_props, },
+                                        { .name = NULL}},
+    .priv_class = &buffer_class,
 };
 
 AVFilter avfilter_asrc_abuffer = {
@@ -458,11 +428,12 @@ AVFilter avfilter_asrc_abuffer = {
     .init      = init_audio,
     .uninit    = uninit,
 
-    .inputs    = (AVFilterPad[]) {{ .name = NULL }},
-    .outputs   = (AVFilterPad[]) {{ .name            = "default",
-                                    .type            = AVMEDIA_TYPE_AUDIO,
-                                    .request_frame   = request_frame,
-                                    .poll_frame      = poll_frame,
-                                    .config_props    = config_props, },
-                                  { .name = NULL}},
+    .inputs    = NULL,
+    .outputs   = (const AVFilterPad[]) {{ .name            = "default",
+                                          .type            = AVMEDIA_TYPE_AUDIO,
+                                          .request_frame   = request_frame,
+                                          .poll_frame      = poll_frame,
+                                          .config_props    = config_props, },
+                                        { .name = NULL}},
+    .priv_class = &abuffer_class,
 };

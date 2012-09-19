@@ -26,6 +26,7 @@
 #include "libavutil/audio_fifo.h"
 #include "libavutil/audioconvert.h"
 #include "libavutil/avassert.h"
+#include "libavutil/common.h"
 #include "libavutil/mathematics.h"
 
 #include "audio.h"
@@ -47,14 +48,16 @@ static av_cold void uninit(AVFilterContext *ctx)
         av_audio_fifo_free(sink->audio_fifo);
 }
 
-static void start_frame(AVFilterLink *link, AVFilterBufferRef *buf)
+static int start_frame(AVFilterLink *link, AVFilterBufferRef *buf)
 {
     BufferSinkContext *s = link->dst->priv;
 
 //     av_assert0(!s->cur_buf);
     s->cur_buf    = buf;
     link->cur_buf = NULL;
-};
+
+    return 0;
+}
 
 int av_buffersink_read(AVFilterContext *ctx, AVFilterBufferRef **buf)
 {
@@ -138,31 +141,39 @@ int av_buffersink_read_samples(AVFilterContext *ctx, AVFilterBufferRef **pbuf,
 }
 
 AVFilter avfilter_vsink_buffer = {
+#if AV_HAVE_INCOMPATIBLE_FORK_ABI
+    .name      = "buffersink",
+#else
     .name      = "buffersink_old",
+#endif
     .description = NULL_IF_CONFIG_SMALL("Buffer video frames, and make them available to the end of the filter graph."),
     .priv_size = sizeof(BufferSinkContext),
     .uninit    = uninit,
 
-    .inputs    = (AVFilterPad[]) {{ .name          = "default",
-                                    .type          = AVMEDIA_TYPE_VIDEO,
-                                    .start_frame   = start_frame,
-                                    .min_perms     = AV_PERM_READ,
-                                    .needs_fifo    = 1 },
-                                  { .name = NULL }},
-    .outputs   = (AVFilterPad[]) {{ .name = NULL }},
+    .inputs    = (const AVFilterPad[]) {{ .name          = "default",
+                                          .type          = AVMEDIA_TYPE_VIDEO,
+                                          .start_frame   = start_frame,
+                                          .min_perms     = AV_PERM_READ,
+                                          .needs_fifo    = 1 },
+                                        { .name = NULL }},
+    .outputs   = NULL,
 };
 
 AVFilter avfilter_asink_abuffer = {
+#if AV_HAVE_INCOMPATIBLE_FORK_ABI
+    .name      = "abuffersink",
+#else
     .name      = "abuffersink_old",
+#endif
     .description = NULL_IF_CONFIG_SMALL("Buffer audio frames, and make them available to the end of the filter graph."),
     .priv_size = sizeof(BufferSinkContext),
     .uninit    = uninit,
 
-    .inputs    = (AVFilterPad[]) {{ .name           = "default",
-                                    .type           = AVMEDIA_TYPE_AUDIO,
-                                    .filter_samples = start_frame,
-                                    .min_perms      = AV_PERM_READ,
-                                    .needs_fifo     = 1 },
-                                  { .name = NULL }},
-    .outputs   = (AVFilterPad[]) {{ .name = NULL }},
+    .inputs    = (const AVFilterPad[]) {{ .name           = "default",
+                                          .type           = AVMEDIA_TYPE_AUDIO,
+                                          .filter_samples = start_frame,
+                                          .min_perms      = AV_PERM_READ,
+                                          .needs_fifo     = 1 },
+                                        { .name = NULL }},
+    .outputs   = NULL,
 };

@@ -245,14 +245,9 @@ static int init(sh_video_t *sh){
     if(use_slices && (lavc_codec->capabilities&CODEC_CAP_DRAW_HORIZ_BAND) && !do_vis_debug)
         ctx->do_slices=1;
 
-    if(lavc_codec->capabilities&CODEC_CAP_DR1 && !do_vis_debug && lavc_codec->id != CODEC_ID_INTERPLAY_VIDEO && lavc_codec->id != CODEC_ID_VP8 && lavc_codec->id != CODEC_ID_LAGARITH)
+    if(lavc_codec->capabilities&CODEC_CAP_DR1 && !do_vis_debug && lavc_codec->id != CODEC_ID_INTERPLAY_VIDEO && lavc_codec->id != CODEC_ID_VP8)
         ctx->do_dr1=1;
     ctx->nonref_dr = lavc_codec->id == CODEC_ID_H264;
-    // temporarily disable nonref_dr for 1.1 release
-    if (ctx->nonref_dr) {
-        ctx->do_dr1 = 0;
-        ctx->nonref_dr = 0;
-    }
     ctx->ip_count= ctx->b_count= 0;
 
     ctx->pic = avcodec_alloc_frame();
@@ -674,6 +669,10 @@ static int get_buffer(AVCodecContext *avctx, AVFrame *pic){
     pic->linesize[2]= mpi->stride[2];
     pic->linesize[3]= mpi->stride[3];
 
+    pic->width  = avctx->width;
+    pic->height = avctx->height;
+    pic->format = avctx->pix_fmt;
+
     pic->opaque = mpi;
 //printf("%X\n", (int)mpi->planes[0]);
 #if 0
@@ -708,6 +707,10 @@ static void release_buffer(struct AVCodecContext *avctx, AVFrame *pic){
     if (mpi) {
         // release mpi (in case MPI_IMGTYPE_NUMBERED is used, e.g. for VDPAU)
         mpi->usage_count--;
+        if (mpi->usage_count < 0) {
+            mp_msg(MSGT_DECVIDEO, MSGL_ERR, "Bad mp_image usage count, please report!\n");
+            mpi->usage_count = 0;
+        }
     }
 
     for(i=0; i<4; i++){
@@ -774,8 +777,8 @@ static mp_image_t *decode(sh_video_t *sh, void *data, int len, int flags){
     av_init_packet(&pkt);
     pkt.data = data;
     pkt.size = len;
-    // HACK: make PNGs decode normally instead of as CorePNG delta frames
-    pkt.flags = AV_PKT_FLAG_KEY;
+    // Necessary to decode e.g. CorePNG and ZeroCodec correctly
+    pkt.flags = (sh->ds->flags & 1) ? AV_PKT_FLAG_KEY : 0;
     if (!ctx->palette_sent && sh->bih && sh->bih->biBitCount <= 8) {
         /* Pass palette to codec */
         uint8_t *pal_data = (uint8_t *)(sh->bih+1);

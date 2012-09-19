@@ -82,6 +82,10 @@ static GLuint osdtex[MAX_OSD_PARTS];
 //! Alpha textures for OSD
 static GLuint osdatex[MAX_OSD_PARTS];
 #endif
+//! Coordinates and texture sizes for OSD
+static struct osdcoords {
+  int x, y, w, h, sx, sy;
+} osdcoords[MAX_OSD_PARTS];
 static GLuint *eosdtex;
 #define LARGE_EOSD_TEX_SIZE 512
 #define TINYTEX_SIZE 16
@@ -91,11 +95,7 @@ static GLuint *eosdtex;
 #define SMALLTEX_COLS (LARGE_EOSD_TEX_SIZE/SMALLTEX_SIZE)
 #define SMALLTEX_MAX (SMALLTEX_COLS*SMALLTEX_COLS)
 static GLuint largeeosdtex[2];
-//! Display lists that draw the OSD parts
-static GLuint osdDispList[MAX_OSD_PARTS];
-#ifndef FAST_OSD
-static GLuint osdaDispList[MAX_OSD_PARTS];
-#endif
+//! Display list that draws the EOSD parts
 static GLuint eosdDispList;
 //! How many parts the OSD currently consists of
 static int osdtexCnt;
@@ -117,6 +117,7 @@ static float filter_strength;
 static float noise_strength;
 static int yuvconvtype;
 static int use_rectangle;
+static int using_tex_rect;
 static int err_shown;
 static uint32_t image_width;
 static uint32_t image_height;
@@ -147,6 +148,7 @@ static int custom_tlin;
 static int custom_trect;
 static int mipmap_gen;
 static int stereo_mode;
+static int stipple;
 static enum MPGLType backend;
 
 static int int_pause;
@@ -250,7 +252,8 @@ static void update_yuvconv(void) {
   float bgamma = exp(log(8.0) * eq_bgamma / 100.0);
   gl_conversion_params_t params = {gl_target, yuvconvtype,
       {colorspace, levelconv, bri, cont, hue, sat, rgamma, ggamma, bgamma, 0},
-      texture_width, texture_height, 0, 0, filter_strength, noise_strength};
+      texture_width, texture_height, 0, 0, filter_strength, noise_strength,
+      stereo_mode == GL_3D_STIPPLE};
   mp_get_chroma_shift(image_format, &xs, &ys, &depth);
   params.chrom_texw = params.texw >> xs;
   params.chrom_texh = params.texh >> ys;
@@ -298,17 +301,12 @@ static void update_yuvconv(void) {
  * \brief remove all OSD textures and display-lists, thus clearing it.
  */
 static void clearOSD(void) {
-  int i;
   if (!osdtexCnt)
     return;
   mpglDeleteTextures(osdtexCnt, osdtex);
 #ifndef FAST_OSD
   mpglDeleteTextures(osdtexCnt, osdatex);
-  for (i = 0; i < osdtexCnt; i++)
-    mpglDeleteLists(osdaDispList[i], 1);
 #endif
-  for (i = 0; i < osdtexCnt; i++)
-    mpglDeleteLists(osdDispList[i], 1);
   osdtexCnt = 0;
 }
 
@@ -436,7 +434,7 @@ skip_upload:
       texSize(i->w, i->h, &sx, &sy);
       mpglBindTexture(gl_target, *curtex++);
     }
-    glDrawTex(i->dst_x, i->dst_y, i->w, i->h, x, y, i->w, i->h, sx, sy, use_rectangle == 1, 0, 0);
+    glDrawTex(i->dst_x, i->dst_y, i->w, i->h, x, y, i->w, i->h, sx, sy, using_tex_rect, 0, 0, 0);
   }
   mpglEndList();
   mpglBindTexture(gl_target, 0);
@@ -515,13 +513,19 @@ static void autodetectGlExtensions(void) {
   }
   if (use_osd == -1)
     use_osd = mpglBindTexture != NULL;
-  if (use_yuv == -1)
+  if (use_yuv == -1) {
     use_yuv = glAutodetectYUVConversion();
+    if (stereo_mode == GL_3D_STIPPLE &&
+        !glYUVSupportsAlphaTex(use_yuv))
+      use_yuv = 0;
+  }
+  if (use_ycbcr == -1)
+    use_ycbcr = extensions && strstr(extensions, "ycbcr_422");
   if (is_ati && (lscale == 1 || lscale == 2 || cscale == 1 || cscale == 2))
     mp_msg(MSGT_VO, MSGL_WARN, "[gl] Selected scaling mode may be broken on ATI cards.\n"
              "Tell _them_ to fix GL_REPEAT if you have issues.\n");
-  mp_msg(MSGT_VO, MSGL_V, "[gl] Settings after autodetection: ati-hack = %i, force-pbo = %i, rectangle = %i, yuv = %i\n",
-         ati_hack, force_pbo, use_rectangle, use_yuv);
+  mp_msg(MSGT_VO, MSGL_V, "[gl] Settings after autodetection: ati-hack = %i, force-pbo = %i, rectangle = %i, yuv = %i, ycbcr = %i\n",
+         ati_hack, force_pbo, use_rectangle, use_yuv, use_ycbcr);
 }
 
 static GLint get_scale_type(int chroma) {
@@ -538,7 +542,8 @@ static GLint get_scale_type(int chroma) {
 static int initGl(uint32_t d_width, uint32_t d_height) {
   GLint scale_type = get_scale_type(0);
   autodetectGlExtensions();
-  gl_target = use_rectangle == 1 ? GL_TEXTURE_RECTANGLE : GL_TEXTURE_2D;
+  using_tex_rect = gl_format == GL_YCBCR_422_APPLE || use_rectangle == 1;
+  gl_target = using_tex_rect ? GL_TEXTURE_RECTANGLE : GL_TEXTURE_2D;
   yuvconvtype = SET_YUV_CONVERSION(use_yuv) |
                 SET_YUV_LUM_SCALER(lscale) |
                 SET_YUV_CHROM_SCALER(cscale);
@@ -562,13 +567,8 @@ static int initGl(uint32_t d_width, uint32_t d_height) {
   if (mipmap_gen)
     mpglTexParameteri(gl_target, GL_GENERATE_MIPMAP, GL_TRUE);
 
-  if (is_yuv) {
+  if (is_yuv || stereo_mode == GL_3D_STIPPLE) {
     int i;
-    int xs, ys, depth;
-    int chroma_clear_val = 128;
-    scale_type = get_scale_type(1);
-    mp_get_chroma_shift(image_format, &xs, &ys, &depth);
-    chroma_clear_val >>= -depth & 7;
     mpglGenTextures(21, default_texs);
     default_texs[21] = 0;
     for (i = 0; i < 7; i++) {
@@ -577,6 +577,15 @@ static int initGl(uint32_t d_width, uint32_t d_height) {
       mpglBindTexture(GL_TEXTURE_RECTANGLE, default_texs[i + 7]);
       mpglBindTexture(GL_TEXTURE_3D, default_texs[i + 14]);
     }
+  }
+  if (stereo_mode == GL_3D_STIPPLE)
+    glSetupAlphaStippleTex(stipple);
+  if (is_yuv) {
+    int xs, ys, depth;
+    int chroma_clear_val = 128;
+    scale_type = get_scale_type(1);
+    mp_get_chroma_shift(image_format, &xs, &ys, &depth);
+    chroma_clear_val >>= -depth & 7;
     mpglActiveTexture(GL_TEXTURE1);
     glCreateClearTex(gl_target, gl_texfmt, gl_format, gl_type, scale_type,
                      texture_width >> xs, texture_height >> ys,
@@ -620,6 +629,10 @@ static int create_window(uint32_t d_width, uint32_t d_height, uint32_t flags, co
     flags |= VOFLAG_STEREO;
 #ifdef CONFIG_GL_WIN32
   if (glctx.type == GLTYPE_W32 && !vo_w32_config(d_width, d_height, flags))
+    return -1;
+#endif
+#ifdef CONFIG_GL_OSX
+  if (glctx.type == GLTYPE_OSX && !vo_osx_config(d_width, d_height, flags))
     return -1;
 #endif
 #ifdef CONFIG_GL_EGL_X11
@@ -676,6 +689,14 @@ static int create_window(uint32_t d_width, uint32_t d_height, uint32_t flags, co
   return 0;
 }
 
+#ifdef CONFIG_GL_OSX
+static void osx_redraw(void)
+{
+  // resize will call redraw to refresh the screen
+  resize(vo_dwidth, vo_dheight);
+}
+#endif
+
 /* connect to server, create and map window,
  * allocate colors and (shared) memory
  */
@@ -706,6 +727,9 @@ config(uint32_t width, uint32_t height, uint32_t d_width, uint32_t d_height, uin
   }
   initGl(vo_dwidth, vo_dheight);
 
+#ifdef CONFIG_GL_OSX
+  vo_osx_redraw_func = osx_redraw;
+#endif
   return 0;
 }
 
@@ -770,21 +794,7 @@ static void create_osd_texture(int x0, int y0, int w, int h,
 
   mpglBindTexture(gl_target, 0);
 
-  // Create a list for rendering this OSD part
-#ifndef FAST_OSD
-  osdaDispList[osdtexCnt] = mpglGenLists(1);
-  mpglNewList(osdaDispList[osdtexCnt], GL_COMPILE);
-  // render alpha
-  mpglBindTexture(gl_target, osdatex[osdtexCnt]);
-  glDrawTex(x0, y0, w, h, 0, 0, w, h, sx, sy, use_rectangle == 1, 0, 0);
-  mpglEndList();
-#endif
-  osdDispList[osdtexCnt] = mpglGenLists(1);
-  mpglNewList(osdDispList[osdtexCnt], GL_COMPILE);
-  // render OSD
-  mpglBindTexture(gl_target, osdtex[osdtexCnt]);
-  glDrawTex(x0, y0, w, h, 0, 0, w, h, sx, sy, use_rectangle == 1, 0, 0);
-  mpglEndList();
+  osdcoords[osdtexCnt] = (struct osdcoords){x0, y0, w, h, sx, sy};
 
   osdtexCnt++;
 }
@@ -796,6 +806,7 @@ static void create_osd_texture(int x0, int y0, int w, int h,
  * \param type bit 0: render OSD, bit 1: render EOSD
  */
 static void do_render_osd(int type) {
+  int i;
   int draw_osd  = (type & RENDER_OSD)  && osdtexCnt > 0;
   int draw_eosd = (type & RENDER_EOSD) && eosdDispList;
   if (!draw_osd && !draw_eosd)
@@ -824,11 +835,21 @@ static void do_render_osd(int type) {
     mpglColor4ub((osd_color >> 16) & 0xff, (osd_color >> 8) & 0xff, osd_color & 0xff, 0xff - (osd_color >> 24));
     // draw OSD
 #ifndef FAST_OSD
+    // render alpha
     mpglBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
-    mpglCallLists(osdtexCnt, GL_UNSIGNED_INT, osdaDispList);
+    for (i = 0; i < osdtexCnt; i++) {
+      struct osdcoords *c = osdcoords + i;
+      mpglBindTexture(gl_target, osdatex[i]);
+      glDrawTex(c->x, c->y, c->w, c->h, 0, 0, c->w, c->h, c->sx, c->sy, using_tex_rect, 0, 0, 0);
+    }
 #endif
+    // render luminance OSD
     mpglBlendFunc(GL_SRC_ALPHA, GL_ONE);
-    mpglCallLists(osdtexCnt, GL_UNSIGNED_INT, osdDispList);
+    for (i = 0; i < osdtexCnt; i++) {
+      struct osdcoords *c = osdcoords + i;
+      mpglBindTexture(gl_target, osdtex[i]);
+      glDrawTex(c->x, c->y, c->w, c->h, 0, 0, c->w, c->h, c->sx, c->sy, using_tex_rect, 0, 0, 0);
+    }
   }
   // set rendering parameters back to defaults
   mpglDisable(GL_BLEND);
@@ -862,21 +883,21 @@ static void do_render(void) {
     glDrawTex(0, 0, image_width, image_height,
               0, 0, image_width >> 1, image_height,
               texture_width, texture_height,
-              use_rectangle == 1, is_yuv,
-              mpi_flipped ^ vo_flipped);
+              using_tex_rect, is_yuv,
+              mpi_flipped ^ vo_flipped, stereo_mode == GL_3D_STIPPLE);
     glEnable3DRight(stereo_mode);
     glDrawTex(0, 0, image_width, image_height,
               image_width >> 1, 0, image_width >> 1, image_height,
               texture_width, texture_height,
-              use_rectangle == 1, is_yuv,
-              mpi_flipped ^ vo_flipped);
+              using_tex_rect, is_yuv,
+              mpi_flipped ^ vo_flipped, stereo_mode == GL_3D_STIPPLE);
     glDisable3D(stereo_mode);
   } else {
     glDrawTex(0, 0, image_width, image_height,
               0, 0, image_width, image_height,
               texture_width, texture_height,
-              use_rectangle == 1, is_yuv,
-              mpi_flipped ^ vo_flipped);
+              using_tex_rect, is_yuv,
+              mpi_flipped ^ vo_flipped, 0);
   }
   if (is_yuv || custom_prog)
     glDisableYUVConversion(gl_target, yuvconvtype);
@@ -1028,7 +1049,8 @@ static void clear_border(uint8_t *dst, int start, int stride, int height, int fu
 }
 
 static uint32_t draw_image(mp_image_t *mpi) {
-  int slice = slice_height;
+  // Ask for TexImage instead of TexSubImage for the rectangle + YCBCR + nodr special case.
+  int slice = gl_target == GL_TEXTURE_RECTANGLE && gl_format == GL_YCBCR_422_APPLE ? -1 : slice_height;
   int stride[3];
   unsigned char *planes[3];
   mp_image_t mpi2 = *mpi;
@@ -1141,7 +1163,7 @@ query_format(uint32_t format)
     // ideally MPlayer should be fixed instead not to use Y800 when it has the choice
     if (!use_yuv && (format == IMGFMT_Y8 || format == IMGFMT_Y800))
         return 0;
-    if (!use_ycbcr && (format == IMGFMT_UYVY || format == IMGFMT_YVYU))
+    if (!use_ycbcr && (format == IMGFMT_YUY2 || format == IMGFMT_UYVY))
         return 0;
     if (many_fmts &&
          glFindFormat(format, NULL, NULL, NULL, NULL))
@@ -1206,6 +1228,7 @@ static const opt_t subopts[] = {
   {"mipmapgen",    OPT_ARG_BOOL, &mipmap_gen,   NULL},
   {"osdcolor",     OPT_ARG_INT,  &osd_color,    NULL},
   {"stereo",       OPT_ARG_INT,  &stereo_mode,  NULL},
+  {"stipple",      OPT_ARG_INT,  &stipple,      NULL},
   {"backend",      OPT_ARG_INT,  &backend,      valid_backend},
   {NULL}
 };
@@ -1218,7 +1241,7 @@ static int preinit_internal(const char *arg, int allow_sw)
     use_osd = -1;
     scaled_osd = 0;
     use_aspect = 1;
-    use_ycbcr = 0;
+    use_ycbcr = -1;
     use_yuv = -1;
     colorspace = -1;
     levelconv = -1;
@@ -1240,6 +1263,7 @@ static int preinit_internal(const char *arg, int allow_sw)
     mipmap_gen = 0;
     osd_color = 0xffffff;
     stereo_mode = 0;
+    stipple = 0x0f0f;
     if (subopt_parse(arg, subopts) != 0) {
       mp_msg(MSGT_VO, MSGL_FATAL,
               "\n-vo gl command line help:\n"
@@ -1270,7 +1294,7 @@ static int preinit_internal(const char *arg, int allow_sw)
               "    1 is equivalent to enable VSYNC, 0 to disable VSYNC.\n"
               "    Requires GLX_SGI_swap_control support to work.\n"
               "  ycbcr\n"
-              "    also try to use the GL_MESA_ycbcr_texture extension\n"
+              "    also try to use the GL_APPLE_ycbcr_422 extension\n"
               "  yuv=<n>\n"
               "    0: use software YUV to RGB conversion.\n"
               "    1: use register combiners (nVidia only, for older cards).\n"
@@ -1279,7 +1303,7 @@ static int preinit_internal(const char *arg, int allow_sw)
               "    4: use fragment program with gamma correction via lookup.\n"
               "    5: use ATI-specific method (for older cards).\n"
               "    6: use lookup via 3D texture.\n"
-	      "  colorspace=<n>\n"
+              "  colorspace=<n>\n"
               "    0: MPlayer's default YUV to RGB conversion\n"
               "    1: YUV to RGB according to BT.601\n"
               "    2: YUV to RGB according to BT.709\n"
@@ -1320,12 +1344,16 @@ static int preinit_internal(const char *arg, int allow_sw)
               "    1: side-by-side to red-cyan stereo\n"
               "    2: side-by-side to green-magenta stereo\n"
               "    3: side-by-side to quadbuffer stereo\n"
+              "    4: side-by-side to pixel pattern\n"
+              "  stipple=<0xBBBB>\n"
+              "    16 bits representing 4x4 pattern to use for stereo=4\n"
               "  backend=<n>\n"
               "   -1: auto-select\n"
               "    0: Win32/WGL\n"
               "    1: X11/GLX\n"
               "    2: SDL\n"
               "    3: X11/EGL (experimental)\n"
+              "    4: OSX/Cocoa\n"
               "\n" );
       return -1;
     }
@@ -1339,6 +1367,17 @@ static int preinit_internal(const char *arg, int allow_sw)
       if (!allow_sw && isSoftwareGl())
         goto err_out;
       autodetectGlExtensions();
+    } else if (use_ycbcr == -1) {
+      // rare feature, not worth creating a window to detect
+      use_ycbcr = 0;
+    }
+    if (glctx.type == GLTYPE_OSX && vo_doublebuffering) {
+      // doublebuffering causes issues when e.g. drawing yuy2 textures
+      // (nothing is draw) unless using glfinish which makes things slow.
+      // This is possibly because we do not actually request a double-buffered
+      // context.
+      mp_msg(MSGT_VO, MSGL_INFO, "[gl] -double not supported on OSX, switching to -nodouble\n");
+      vo_doublebuffering = 0;
     }
     if (many_fmts)
       mp_msg(MSGT_VO, MSGL_INFO, "[gl] using extended formats. "

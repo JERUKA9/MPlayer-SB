@@ -25,6 +25,7 @@
  */
 
 #include "libavutil/audio_fifo.h"
+#include "libavutil/audioconvert.h"
 #include "libavutil/avassert.h"
 #include "libavutil/opt.h"
 #include "avfilter.h"
@@ -42,18 +43,19 @@ typedef struct {
 } ASNSContext;
 
 #define OFFSET(x) offsetof(ASNSContext, x)
+#define FLAGS AV_OPT_FLAG_AUDIO_PARAM|AV_OPT_FLAG_FILTERING_PARAM
 
 static const AVOption asetnsamples_options[] = {
-{ "pad", "pad last frame with zeros", OFFSET(pad), AV_OPT_TYPE_INT, {.dbl=1}, 0, 1 },
-{ "p",   "pad last frame with zeros", OFFSET(pad), AV_OPT_TYPE_INT, {.dbl=1}, 0, 1 },
-{ "nb_out_samples", "set the number of per-frame output samples", OFFSET(nb_out_samples), AV_OPT_TYPE_INT, {.dbl=1024}, 1, INT_MAX },
-{ "n",              "set the number of per-frame output samples", OFFSET(nb_out_samples), AV_OPT_TYPE_INT, {.dbl=1024}, 1, INT_MAX },
+{ "pad", "pad last frame with zeros", OFFSET(pad), AV_OPT_TYPE_INT, {.i64=1}, 0, 1, FLAGS },
+{ "p",   "pad last frame with zeros", OFFSET(pad), AV_OPT_TYPE_INT, {.i64=1}, 0, 1, FLAGS },
+{ "nb_out_samples", "set the number of per-frame output samples", OFFSET(nb_out_samples), AV_OPT_TYPE_INT, {.i64=1024}, 1, INT_MAX, FLAGS },
+{ "n",              "set the number of per-frame output samples", OFFSET(nb_out_samples), AV_OPT_TYPE_INT, {.i64=1024}, 1, INT_MAX, FLAGS },
 { NULL }
 };
 
 AVFILTER_DEFINE_CLASS(asetnsamples);
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     ASNSContext *asns = ctx->priv;
     int err;
@@ -61,13 +63,11 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
     asns->class = &asetnsamples_class;
     av_opt_set_defaults(asns);
 
-    if ((err = av_set_options_string(asns, args, "=", ":")) < 0) {
-        av_log(ctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+    if ((err = av_set_options_string(asns, args, "=", ":")) < 0)
         return err;
-    }
 
     asns->next_out_pts = AV_NOPTS_VALUE;
-    av_log(ctx, AV_LOG_INFO, "nb_out_samples:%d pad:%d\n", asns->nb_out_samples, asns->pad);
+    av_log(ctx, AV_LOG_VERBOSE, "nb_out_samples:%d pad:%d\n", asns->nb_out_samples, asns->pad);
 
     return 0;
 }
@@ -130,7 +130,7 @@ static int push_samples(AVFilterLink *outlink)
     return nb_out_samples;
 }
 
-static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
+static int filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
 {
     AVFilterContext *ctx = inlink->dst;
     ASNSContext *asns = ctx->priv;
@@ -144,7 +144,7 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
         if (ret < 0) {
             av_log(ctx, AV_LOG_ERROR,
                    "Stretching audio fifo failed, discarded %d samples\n", nb_samples);
-            return;
+            return -1;
         }
     }
     av_audio_fifo_write(asns->fifo, (void **)insamples->extended_data, nb_samples);
@@ -152,8 +152,9 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
         asns->next_out_pts = insamples->pts;
     avfilter_unref_buffer(insamples);
 
-    if (av_audio_fifo_size(asns->fifo) >= asns->nb_out_samples)
+    while (av_audio_fifo_size(asns->fifo) >= asns->nb_out_samples)
         push_samples(outlink);
+    return 0;
 }
 
 static int request_frame(AVFilterLink *outlink)
@@ -200,4 +201,5 @@ AVFilter avfilter_af_asetnsamples = {
         },
         { .name = NULL }
     },
+    .priv_class = &asetnsamples_class,
 };

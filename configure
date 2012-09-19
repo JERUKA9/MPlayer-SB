@@ -72,9 +72,9 @@ compile_check() {
   echo >> "$TMPLOG"
   cat "$source" >> "$TMPLOG"
   echo >> "$TMPLOG"
-  echo "$_cc $WARNFLAGS $WARN_CFLAGS $CFLAGS $source $extra_cflags $ld_static $extra_ldflags $libs_mplayer $libs_mencoder -o $TMPEXE $@" >> "$TMPLOG"
+  echo "$_cc $WARNFLAGS $WARN_CFLAGS $CFLAGS $source $extra_cflags $ld_static $extra_ldflags $libs_mplayer $libs_mencoder -o $TMPEXE $@ -lm" >> "$TMPLOG"
   rm -f "$TMPEXE"
-  $_cc $WARNFLAGS $WARN_CFLAGS $CFLAGS "$source" $extra_cflags $ld_static $extra_ldflags $libs_mplayer $libs_mencoder -o "$TMPEXE" "$@" >> "$TMPLOG" 2>&1
+  $_cc $WARNFLAGS $WARN_CFLAGS $CFLAGS "$source" $extra_cflags $ld_static $extra_ldflags $libs_mplayer $libs_mencoder -o "$TMPEXE" "$@" -lm >> "$TMPLOG" 2>&1
   TMPRES="$?"
   echo >> "$TMPLOG"
   echo >> "$TMPLOG"
@@ -441,6 +441,7 @@ Codecs:
   --disable-ladspa          disable LADSPA plugin support [autodetect]
   --disable-libbs2b         disable libbs2b audio filter support [autodetect]
   --disable-libdv           disable libdv 0.9.5 en/decoding support [autodetect]
+  --disable-libopus         disable libopus decoding support [autodetect]
   --disable-mpg123          disable libmpg123 MP3 decoding support [autodetect]
   --disable-mad             disable libmad (MPEG audio) support [autodetect]
   --disable-mp3lame         disable LAME MP3 encoding support [autodetect]
@@ -502,6 +503,7 @@ Video output:
   --enable-xmga            enable mga_vid X11 video output [autodetect]
   --enable-xv              enable Xv video output [autodetect]
   --enable-xvmc            enable XvMC acceleration [disable]
+  --enable-vda             enable VDA acceleration [autodetect]
   --enable-vdpau           enable VDPAU acceleration [autodetect]
   --enable-vm              enable XF86VidMode support [autodetect]
   --enable-xinerama        enable Xinerama support [autodetect]
@@ -580,7 +582,11 @@ Advanced options:
   --enable-3dnowext         enable extended 3DNow! [autodetect]
   --enable-sse              enable SSE [autodetect]
   --enable-sse2             enable SSE2 [autodetect]
+  --enable-sse3             enable SSE3 [autodetect]
   --enable-ssse3            enable SSSE3 [autodetect]
+  --enable-sse4             enable SSE4 [autodetect]
+  --enable-sse42            enable SSE4.2 [autodetect]
+  --enable-avx              enable AVX [autodetect]
   --enable-shm              enable shm [autodetect]
   --enable-altivec          enable AltiVec (PowerPC) [autodetect]
   --enable-armv5te          enable DSP extensions (ARM) [autodetect]
@@ -597,6 +603,7 @@ Advanced options:
   --enable-debug[=1-3]      compile-in debugging information [disable]
   --enable-profile          compile-in profiling information [disable]
   --disable-sighandler      disable sighandler for crashes [enable]
+  --enable-relocatable      enable compiling as relocatable/PIE executable [disable]
   --enable-crash-debug      enable automatic gdb attach on crash [disable]
   --enable-dynamic-plugins  enable dynamic A/V plugins [disable]
 
@@ -633,7 +640,11 @@ _3dnowext=auto
 _mmxext=auto
 _sse=auto
 _sse2=auto
+_sse3=auto
 _ssse3=auto
+_sse4_1=auto
+_sse4_2=auto
+_avx=auto
 _cmov=auto
 _fast_cmov=auto
 _fast_clz=auto
@@ -684,7 +695,7 @@ libavmuxers_all=$(sed -n 's/^[^#]*_MUX.*(.*, *\(.*\)).*/\1_muxer/p' ffmpeg/libav
 libavmuxers=$(echo $libavmuxers_all | sed -e 's/ LIB[A-Z0-9_]*_MUXER//g' -e s/RTP_MUXER// -e s/RTSP_MUXER// -e s/SAP_MUXER//)
 libavprotocols_all=$(sed -n 's/^[^#]*PROTOCOL.*(.*, *\(.*\)).*/\1_protocol/p' ffmpeg/libavformat/allformats.c | tr '[a-z]' '[A-Z]')
 libavprotocols=$libavprotocols_all
-libavprotocols=$(echo $libavprotocols | sed -e s/HTTPS_PROTOCOL// -e s/TLS_PROTOCOL// -e s/BLURAY_PROTOCOL//)
+libavprotocols=$(echo $libavprotocols | sed -e s/HTTPS_PROTOCOL// -e s/TLS_PROTOCOL// -e s/BLURAY_PROTOCOL// -e s/FFRTMPCRYPT_PROTOCOL//)
 libavfilters_all=$(sed -n 's/^[^#]*FILTER.*(.*, *\(.*\),.*).*/\1_filter/p' ffmpeg/libavfilter/allfilters.c | tr '[a-z]' '[A-Z]')
 libavfilters=$(echo $libavfilters_all | sed -e 's/ LIB[A-Z0-9_]*_FILTER//g' -e 's/ FREI0R[A-Z0-9_]*_FILTER//g' -e 's/ OCV_FILTER//g' -e 's/ MP_FILTER//g')
 _mencoder=yes
@@ -696,6 +707,7 @@ _dga1=auto
 _dga2=auto
 _xv=auto
 _xvmc=no  #auto when complete
+_vda=auto
 _vdpau=auto
 _sdl=auto
 _kva=auto
@@ -760,6 +772,7 @@ _faac=auto
 _faac_lavc=auto
 _ladspa=auto
 _libbs2b=auto
+_libopus=auto
 _xmms=no
 _vcd=auto
 _bluray=auto
@@ -844,6 +857,7 @@ _charset="UTF-8"
 _dynamic_plugins=no
 _crash_debug=no
 _sighandler=yes
+relocatable=no
 _libdv=auto
 _cdparanoia=auto
 _cddb=auto
@@ -1040,6 +1054,8 @@ for ac_option do
   --disable-xv)         _xv=no          ;;
   --enable-xvmc)        _xvmc=yes       ;;
   --disable-xvmc)       _xvmc=no        ;;
+  --enable-vda)         _vda=yes        ;;
+  --disable-vda)        _vda=no         ;;
   --enable-vdpau)       _vdpau=yes      ;;
   --disable-vdpau)      _vdpau=no       ;;
   --enable-sdl)         _sdl=yes        ;;
@@ -1174,6 +1190,8 @@ for ac_option do
   --disable-ladspa)     _ladspa=no      ;;
   --enable-libbs2b)     _libbs2b=yes    ;;
   --disable-libbs2b)    _libbs2b=no     ;;
+  --enable-libopus)     _libopus=yes    ;;
+  --disable-libopus)    _libopus=no     ;;
   --enable-xmms)        _xmms=yes       ;;
   --disable-xmms)       _xmms=no        ;;
   --enable-vcd)         _vcd=yes        ;;
@@ -1427,6 +1445,8 @@ for ac_option do
   --disable-crash-debug) _crash_debug=no ;;
   --enable-sighandler)  _sighandler=yes  ;;
   --disable-sighandler) _sighandler=no   ;;
+  --enable-relocatable)  relocatable=yes  ;;
+  --disable-relocatable) relocatable=no   ;;
   --enable-win32dll) _win32dll=yes ;;
   --disable-win32dll) _win32dll=no ;;
 
@@ -1434,8 +1454,16 @@ for ac_option do
   --disable-sse) _sse=no ;;
   --enable-sse2) _sse2=yes ;;
   --disable-sse2) _sse2=no ;;
+  --enable-sse3) _sse3=yes ;;
+  --disable-sse3) _sse3=no ;;
   --enable-ssse3) _ssse3=yes ;;
   --disable-ssse3) _ssse3=no ;;
+  --enable-sse4) _sse4_1=yes;;
+  --disable-sse4) _sse4_1=no;;
+  --enable-sse42) _sse4_2=yes;;
+  --disable-sse42) _sse4_2=no;;
+  --enable-avx) _avx=yes;;
+  --disable-avx) _avx=no;;
   --enable-mmxext) _mmxext=yes ;;
   --disable-mmxext) _mmxext=no ;;
   --enable-3dnow) _3dnow=yes ;;
@@ -1560,7 +1588,6 @@ else # if test -z "$_target"
 fi
 
 extra_cflags="-I. -Iffmpeg $extra_cflags"
-extra_ldflags="-lm $extra_ldflags"
 _timer=timer-linux.c
 _getch=getch2.c
 
@@ -1810,7 +1837,7 @@ if x86 ; then
   exts=$($_cpuinfo | egrep 'features|flags' | cut -d ':' -f 2 | head -n 1)
 
   pparam=$(echo $exts | sed -e s/k6_mtrr/mtrr/ -e s/cyrix_arr/mtrr/ -e s/centaur_mcr/mtrr/ \
-                            -e s/xmm/sse/ -e s/kni/sse/)
+                            -e s/xmm/sse/ -e s/kni/sse/ -e s/pni/sse3/)
   # SSE implies MMX2, but not all SSE processors report the mmxext CPU flag.
   pparam=$(echo $pparam | sed -e 's/sse/sse mmxext/')
 
@@ -1863,7 +1890,11 @@ EOF
   extcheck $_3dnowext "3dnowext" "pswapd %%mm0, %%mm0"
   extcheck $_sse      "sse"      "xorps %%xmm0, %%xmm0" || _gcc3_ext="$_gcc3_ext -mno-sse"
   extcheck $_sse2     "sse2"     "xorpd %%xmm0, %%xmm0" || _gcc3_ext="$_gcc3_ext -mno-sse2"
+  extcheck $_sse3     "sse3"     "addsubps %%xmm0, %%xmm0"
   extcheck $_ssse3    "ssse3"    "pabsd %%xmm0, %%xmm0"
+  extcheck $_sse4_1   "sse4_1"   "pmaxsb %%xmm0, %%xmm0"
+  extcheck $_sse4_2   "sse4_2"   "pcmpgtq %%xmm0, %%xmm0"
+  extcheck $_avx      "avx"      "vpabsw %%xmm0, %%xmm0"
   extcheck $_cmov     "cmov"     "cmovb %%eax,  %%ebx"
 
   echocheck "mtrr support"
@@ -2515,7 +2546,11 @@ if test "$_runtime_cpudetection" = yes ; then
     test "$_mmxext"   != no && _mmxext=yes
     test "$_sse"      != no && _sse=yes
     test "$_sse2"     != no && _sse2=yes
+    test "$_sse3"     != no && _sse3=yes
     test "$_ssse3"    != no && _ssse3=yes
+    test "$_sse4_1"   != no && _sse4_1=yes
+    test "$_sse4_2"   != no && _sse4_2=yes
+    test "$_avx"      != no && _avx=yes
     test "$_mtrr"     != no && _mtrr=yes
   fi
   if ppc; then
@@ -2534,7 +2569,9 @@ short ascii_name[] = {
 int main(void) { return (long)ascii_name; }
 EOF
   if cc_check ; then
-    if strings $TMPEXE | grep -q -l MPlayerBigEndian ; then
+    # stdin is used to make "strings" not try something clever like
+    # parse executable section headers (and possibly fail in the process)
+    if strings < $TMPEXE | grep -q -l MPlayerBigEndian ; then
       _big_endian=yes
     else
       _big_endian=no
@@ -2714,6 +2751,36 @@ if test -n "$CPPFLAGS" ; then
 fi
 
 
+# try to create a relocatable binary by default
+echocheck "relocatable binary"
+if test $relocatable = "auto" ; then
+  if test -n "$ld_static" ; then
+    relocatable=no
+    res_comment="PIE + static assumed to be broken"
+  elif x86_32 && cflag_check -pie ; then
+    extra_ldflags="$extra_ldflags -pie"
+    relocatable=yes
+    res_comment="non-PIC"
+  elif x86_64 && cflag_check -fpie -pie ; then
+    extra_ldflags="$extra_ldflags -fpie -pie"
+    extra_cflags="$extra_cflags -fpie"
+    relocatable=yes
+    res_comment="fast PIC"
+  else
+    relocatable=no
+    res_comment="unavailable or untested architecture"
+  fi
+elif test $relocatable = "yes" ; then
+  if return_check "stdint.h" '(intptr_t)"test" >> 16' -pie ; then
+    extra_ldflags="$extra_ldflags -pie"
+    res_comment="non-PIC"
+  else
+    extra_ldflags="$extra_ldflags -fpie -pie"
+    extra_cflags="$extra_cflags -fpie"
+    res_comment="possibly slow PIC!"
+  fi
+fi
+echores $relocatable
 
 if x86_32 ; then
   # Checking assembler (_as) compatibility...
@@ -2780,7 +2847,7 @@ def_ebx_available='#define HAVE_EBX_AVAILABLE 0'
 def_xmm_clobbers='#define HAVE_XMM_CLOBBERS 0'
 
 if x86_64 ; then
-inline_asm_check '"mov (%eax), %eax"' || die "Your binutils version is too old to compile for 64-bit"
+inline_asm_check '"mov (%eax), %eax"' || die "Your binutils version is too old to compile for 64-bit (on OSX try --cc=clang)"
 fi
 
 if x86 ; then
@@ -2845,6 +2912,7 @@ else
 fi
 
 echo "pextrd [eax], xmm0, 1" > $TMPS
+yasm_features_all="cpunop"
 if test "$_yasm" ; then
   if ! yasm_check ; then
     if x86_64 ; then
@@ -2855,6 +2923,8 @@ if test "$_yasm" ; then
     fi
     YASMFLAGS="-f $objformat $yasmdefines"
     yasm_check || die "yasm not found, use --yasm='' if you really want to compile without"
+    echo "CPU amdnop" > $TMPS
+    yasm_check && yasm_features="cpunop"
   fi
 fi
 if test $_yasm ; then
@@ -3028,15 +3098,20 @@ if arm ; then
   echores "$_iwmmxt"
 fi
 
-cpuexts_all='ALTIVEC AVX MMX MMX2 AMD3DNOW AMD3DNOWEXT SSE SSE2 SSSE3 FAST_CMOV CMOV FAST_CLZ ARMV5TE ARMV6 ARMV6T2 ARMVFP VFPV3 NEON IWMMXT MMI VIS MVI'
+cpuexts_all='ALTIVEC AVX MMX MMX2 MMXEXT AMD3DNOW AMD3DNOWEXT SSE SSE2 SSE3 SSSE3 SSE4 SSE42 FAST_CMOV CMOV FAST_CLZ ARMV5TE ARMV6 ARMV6T2 ARMVFP VFPV3 NEON IWMMXT MMI VIS MVI'
 test "$_altivec"   = yes && cpuexts="ALTIVEC $cpuexts"
 test "$_mmx"       = yes && cpuexts="MMX $cpuexts"
 test "$_mmxext"    = yes && cpuexts="MMX2 $cpuexts"
+test "$_mmxext"    = yes && cpuexts="MMXEXT $cpuexts"
 test "$_3dnow"     = yes && cpuexts="AMD3DNOW $cpuexts"
 test "$_3dnowext"  = yes && cpuexts="AMD3DNOWEXT $cpuexts"
 test "$_sse"       = yes && cpuexts="SSE $cpuexts"
 test "$_sse2"      = yes && cpuexts="SSE2 $cpuexts"
+test "$_sse3"      = yes && cpuexts="SSE3 $cpuexts"
 test "$_ssse3"     = yes && cpuexts="SSSE3 $cpuexts"
+test "$_sse4_1"    = yes && cpuexts="SSE4 $cpuexts"
+test "$_sse4_2"    = yes && cpuexts="SSE42 $cpuexts"
+test "$_avx"       = yes && cpuexts="AVX $cpuexts"
 test "$_cmov"      = yes && cpuexts="CMOV $cpuexts"
 test "$_fast_cmov" = yes && cpuexts="FAST_CMOV $cpuexts"
 test "$_fast_clz"  = yes && cpuexts="FAST_CLZ $cpuexts"
@@ -3202,7 +3277,7 @@ fi
 echores "$_kstat"
 
 
-for func in cbrtf exp2 exp2f llrint llrintf log2 log2f lrint lrintf round roundf trunc truncf; do
+for func in cbrtf exp2 exp2f isnan isinf llrint llrintf log2 log2f lrint lrintf rint round roundf trunc truncf; do
 echocheck $func
 eval _$func=no
 statement_check math.h "${func}(2.0)" -D_ISOC99_SOURCE && eval _$func=yes
@@ -4035,7 +4110,7 @@ echocheck "setenv()"
 setenv=yes
 def_setenv='#define HAVE_SETENV 1'
 statement_check stdlib.h 'setenv("", "", 0)' ||
-    { setenv=no ; def_setenv='#undef HAVE_SETENV' ; }
+    { setenv=no ; def_setenv='#define HAVE_SETENV 0' ; }
 echores "$setenv"
 
 
@@ -4472,6 +4547,22 @@ else
   libavdecoders=$(echo $libavdecoders | sed -e s/MPEG_XVMC_DECODER//)
 fi
 echores "$_xvmc"
+
+
+echocheck "Video Decode Acceleration (VDA)"
+if test "$_vda" = auto ; then
+  _vda=no
+  header_check VideoDecodeAcceleration/VDADecoder.h && _vda=yes
+fi
+if test "$_vda" = yes ; then
+  def_vda='#define CONFIG_VDA 1'
+  extra_ldflags="$extra_ldflags -framework CoreFoundation -framework VideoDecodeAcceleration -framework QuartzCore"
+  libavhwaccels="H264_VDA_HWACCEL"
+else
+  def_vda='#define CONFIG_VDA 0'
+  libavdecoders=$(echo $libavdecoders | sed -e 's/[A-Z0-9]*_VDA_DECODER//g')
+fi
+echores "$_vda"
 
 
 echocheck "VDPAU"
@@ -5180,7 +5271,7 @@ echores "$_sdl"
 # conflicts between -lGL and -framework OpenGL
 echocheck "OpenGL"
 #Note: this test is run even with --enable-gl since we autodetect linker flags
-if (test "$_x11" = yes || test "$_sdl" = yes || win32) && test "$_gl" != no ; then
+if (test "$_x11" = yes || test "$_sdl" = yes || win32 || test "$_corevideo" = yes) && test "$_gl" != no ; then
   cat > $TMPC << EOF
 #ifdef GL_WIN32
 #include <windows.h>
@@ -5255,6 +5346,10 @@ EOF
       libs_mplayer="$libs_mplayer -lGL"
     fi
   fi
+  if test "$_corevideo" = yes ; then
+    _gl=yes
+    _gl_osx=yes
+  fi
 else
   _gl=no
 fi
@@ -5277,6 +5372,10 @@ if test "$_gl" = yes ; then
     def_gl_sdl='#define CONFIG_GL_SDL 1'
     res_comment="$res_comment sdl"
   fi
+  if test "$_gl_osx" = yes ; then
+    def_gl_osx='#define CONFIG_GL_OSX 1'
+    res_comment="$res_comment osx"
+  fi
   vomodules="opengl $vomodules"
 else
   def_gl='#undef CONFIG_GL'
@@ -5284,6 +5383,7 @@ else
   def_gl_x11='#undef CONFIG_GL_X11'
   def_gl_egl_x11='#undef CONFIG_GL_EGL_X11'
   def_gl_sdl='#undef CONFIG_GL_SDL'
+  def_gl_osx='#undef CONFIG_GL_OSX'
   novomodules="opengl $novomodules"
 fi
 echores "$_gl"
@@ -6575,6 +6675,27 @@ fi
 echores "$_faad"
 
 
+echocheck "libopus decoding support"
+if test "$_libopus" = auto ; then
+  _libopus=no
+  if $_pkg_config --exists 'opus' ; then
+    statement_check opus_multistream.h 'opus_multistream_decoder_create(0,0,0,0,0,0)' $($_pkg_config --libs --cflags opus) &&
+      _libopus=yes
+  fi
+fi
+if test "$_libopus" = yes ; then
+  def_libopus='#define CONFIG_LIBOPUS 1'
+  libavdecoders="$libavdecoders LIBOPUS_DECODER"
+  extra_cflags="$extra_cflags $($_pkg_config --cflags opus)"
+  extra_ldflags="$extra_ldflags $($_pkg_config --libs opus)"
+  codecmodules="libopus $codecmodules"
+else
+  nocodecmodules="libopus $nocodecmodules"
+  def_libopus='#undef CONFIG_LIBOPUS'
+fi
+echores "$_libopus"
+
+
 echocheck "LADSPA plugin support"
 if test "$_ladspa" = auto ; then
   _ladspa=no
@@ -6760,8 +6881,8 @@ EOF
              -I$_livelibdir/BasicUsageEnvironment/include \
              -I$_livelibdir/groupsock/include"
     ld_tmp="$_livelibdir/liveMedia/libliveMedia.a \
-            $_livelibdir/UsageEnvironment/libUsageEnvironment.a \
             $_livelibdir/BasicUsageEnvironment/libBasicUsageEnvironment.a \
+            $_livelibdir/UsageEnvironment/libUsageEnvironment.a \
             $_livelibdir/groupsock/libgroupsock.a \
             -lstdc++ $ld_sock"
     test -e "$_livelibdir/BasicUsageEnvironment/libBasicUsageEnvironment.a" &&
@@ -7856,6 +7977,8 @@ else
 fi
 echores "$_dvdnav"
 
+extra_ldflags="$extra_ldflags -lm"
+
 # DO NOT ADD ANY TESTS THAT USE LINKER FLAGS HERE (like cc_check).
 # Read dvdnav comment above.
 
@@ -8170,6 +8293,7 @@ GL_WIN32 = $_gl_win32
 GL_X11 = $_gl_x11
 GL_EGL_X11 = $_gl_egl_x11
 GL_SDL = $_gl_sdl
+GL_OSX = $_gl_osx
 MATRIXVIEW = $matrixview
 GUI = $_gui
 GUI_GTK = $_gui_gtk
@@ -8252,6 +8376,7 @@ TWOLAME=$_twolame
 UNRAR_EXEC = $_unrar_exec
 V4L2 = $_v4l2
 VCD = $_vcd
+VDA = $_vda
 VDPAU = $_vdpau
 VESA = $_vesa
 VIDIX = $_vidix
@@ -8309,10 +8434,14 @@ HOSTCFLAGS = -D_ISOC99_SOURCE -D_POSIX_C_SOURCE=200112 -O3
 HOSTLIBS   = -lm
 AS_O       = -o \$@
 CC_O       = -o \$@
+CXX_O      = -o \$@
+AS_C       = -c
+CC_C       = -c
+CXX_C      = -c
 LD         = gcc
 RANLIB     = $_ranlib
 YASM       = $_yasm
-YASMDEP    = $_yasm
+DEPYASM    = $_yasm
 YASMFLAGS  = $YASMFLAGS
 
 CONFIG_STATIC = yes
@@ -8328,7 +8457,7 @@ SLIBNAME            = \$(SLIBPREF)\$(FULLNAME)\$(SLIBSUF)
 SLIBNAME_WITH_MAJOR = \$(SLIBNAME)-42
 
 # Some FFmpeg codecs depend on these. Enable them unconditionally for now.
-CONFIG_AANDCT  = yes
+CONFIG_AANDCTTABLES  = yes
 CONFIG_DCT     = yes
 CONFIG_DWT     = yes
 CONFIG_FFT     = yes
@@ -8342,8 +8471,12 @@ CONFIG_LPC     = yes
 CONFIG_LSP     = yes
 CONFIG_MDCT    = yes
 CONFIG_MPEGAUDIODSP = yes
+CONFIG_MPEGVIDEO    = yes
+CONFIG_MPEGVIDEOENC = yes
+CONFIG_RANGECODER   = yes
 CONFIG_RDFT    = yes
 CONFIG_SINEWIN = yes
+CONFIG_VP3DSP  = yes
 
 $mak_hardcoded_tables
 $mak_libavcodec_mpegaudio_hp
@@ -8360,6 +8493,7 @@ CONFIG_MUXERS   = yes
 CONFIG_NETWORK  = $networking
 CONFIG_RTPDEC   = $networking
 CONFIG_VF_LAVFI = $_vf_lavfi
+CONFIG_VDA      = $_vda
 CONFIG_VDPAU    = $_vdpau
 CONFIG_XVMC     = $_xvmc
 CONFIG_ZLIB     = $_zlib
@@ -8389,12 +8523,13 @@ list=$(echo $1 | tr '[a-z]' '[A-Z]')
 item=$(echo $2 | tr '[a-z]' '[A-Z]')
 _nprefix=$4;
 _defineprefix=$3;
+_postfix=$5;
 test -z "$_nprefix" && _nprefix='CONFIG'
 for part in $list; do
   if $(echo $item | grep -q -E "(^| )$part($| )"); then
-    echo "${_defineprefix}define ${_nprefix}_$part 1"
+    echo "${_defineprefix}define ${_nprefix}_${part}${_postfix} 1"
   else
-    echo "${_defineprefix}define ${_nprefix}_$part 0"
+    echo "${_defineprefix}define ${_nprefix}_${part}${_postfix} 0"
   fi
 done
 }
@@ -8540,6 +8675,8 @@ $def_words_endian
 $(ff_config_enable "$arch_all" "$arch" "#" "ARCH")
 $(ff_config_enable "$subarch_all" "$subarch" "#" "ARCH")
 $(ff_config_enable "$cpuexts_all" "$cpuexts" "#" "HAVE")
+$(ff_config_enable "$cpuexts_all" "$cpuexts" "#" "HAVE" "_EXTERNAL")
+$(ff_config_enable "$cpuexts_all" "$cpuexts" "#" "HAVE" "_INLINE")
 
 
 /* Blu-ray/DVD/VCD/CD */
@@ -8574,6 +8711,7 @@ $def_libdv
 $def_liblzo
 $def_libmpeg2
 $def_libmpeg2_internal
+$def_libopus
 $def_mad
 $def_mp3lame
 $def_mp3lame_preset
@@ -8715,6 +8853,7 @@ $def_gl_win32
 $def_gl_x11
 $def_gl_egl_x11
 $def_gl_sdl
+$def_gl_osx
 $def_matrixview
 $def_ivtv
 $def_jpeg
@@ -8789,6 +8928,8 @@ $def_fast_unaligned
 $def_gnu_as
 $def_hardcoded_tables
 $def_ibm_asm
+$def_isinf
+$def_isnan
 $def_libavcodec_mpegaudio_hp
 $def_llrint
 $def_llrintf
@@ -8807,6 +8948,7 @@ $def_pic
 $def_poll_h
 $def_posix_memalign
 $def_pthreads
+$def_rint
 $def_round
 $def_roundf
 $def_threads
@@ -8818,6 +8960,7 @@ $def_xform_asm
 $def_xmm_clobbers
 $def_yasm
 
+#define AV_HAVE_INCOMPATIBLE_FORK_ABI 0
 #define CONFIG_AUDIO_FLOAT 0
 #define CONFIG_AVCODEC 1
 #define CONFIG_AVSERVER 0
@@ -8838,24 +8981,28 @@ $def_yasm
 
 #define HAVE_ALIGNED_STACK 1
 #define HAVE_ATTRIBUTE_PACKED 1
-#define HAVE_AVX 0
 #define HAVE_GETHRTIME 0
 #define HAVE_INLINE_ASM 1
 #define HAVE_ISATTY 0
 #define HAVE_LDBRX 0
 #define HAVE_LOCALTIME_R 0
 #define HAVE_MAPVIEWOFFILE 0
+#define HAVE_MIPSDSPR1 0
 #define HAVE_MIPSFPU 0
+#define HAVE_MM_EMPTY 0
+#define HAVE_PTHREAD_CANCEL 0
 #define HAVE_PPC4XX 0
+#define HAVE_RDTSC 0
 #define HAVE_STRERROR_R 0
 #define HAVE_STRPTIME 0
+#define HAVE_STRUCT_POLLFD 0
 #define HAVE_SYMVER_ASM_LABEL 0
 #define HAVE_SYMVER_GNU_ASM 0
 #define HAVE_SYS_SELECT_H 0
 #define HAVE_VIRTUALALLOC 0
 
 /* Some FFmpeg codecs depend on these. Enable them unconditionally for now. */
-#define CONFIG_AANDCT 1
+#define CONFIG_AANDCTTABLES 1
 #define CONFIG_DCT 1
 #define CONFIG_DWT 1
 #define CONFIG_FFT 1
@@ -8934,7 +9081,8 @@ if x86; then
 echo "%define CONFIG_GPL 1" >> "$TMPS"
 echo "$(ff_config_enable "$arch_all" "$arch" "%" "ARCH")" >> "$TMPS"
 echo "$(ff_config_enable "$subarch_all" "$subarch" "%" "ARCH")" >> "$TMPS"
-echo "$(ff_config_enable "$cpuexts_all" "$cpuexts" "%" "HAVE")" >> "$TMPS"
+echo "$(ff_config_enable "$cpuexts_all" "$cpuexts" "%" "HAVE" "_EXTERNAL")" >> "$TMPS"
+echo "$(ff_config_enable "$yasm_features_all" "$yasm_features" "%" "HAVE")" >> "$TMPS"
 
 cmp -s "$TMPS" ffmpeg/config.asm || mv -f "$TMPS" ffmpeg/config.asm
 fi

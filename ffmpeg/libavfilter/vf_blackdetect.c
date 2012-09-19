@@ -48,13 +48,15 @@ typedef struct {
 } BlackDetectContext;
 
 #define OFFSET(x) offsetof(BlackDetectContext, x)
+#define FLAGS AV_OPT_FLAG_VIDEO_PARAM|AV_OPT_FLAG_FILTERING_PARAM
+
 static const AVOption blackdetect_options[] = {
-    { "d",                  "set minimum detected black duration in seconds", OFFSET(black_min_duration_time), AV_OPT_TYPE_DOUBLE, {.dbl=2}, 0, DBL_MAX},
-    { "black_min_duration", "set minimum detected black duration in seconds", OFFSET(black_min_duration_time), AV_OPT_TYPE_DOUBLE, {.dbl=2}, 0, DBL_MAX},
-    { "picture_black_ratio_th", "set the picture black ratio threshold", OFFSET(picture_black_ratio_th), AV_OPT_TYPE_DOUBLE, {.dbl=.98}, 0, 1},
-    { "pic_th",                 "set the picture black ratio threshold", OFFSET(picture_black_ratio_th), AV_OPT_TYPE_DOUBLE, {.dbl=.98}, 0, 1},
-    { "pixel_black_th", "set the pixel black threshold", OFFSET(pixel_black_th), AV_OPT_TYPE_DOUBLE, {.dbl=.10}, 0, 1},
-    { "pix_th",         "set the pixel black threshold", OFFSET(pixel_black_th), AV_OPT_TYPE_DOUBLE, {.dbl=.10}, 0, 1},
+    { "d",                  "set minimum detected black duration in seconds", OFFSET(black_min_duration_time), AV_OPT_TYPE_DOUBLE, {.dbl=2}, 0, DBL_MAX, FLAGS },
+    { "black_min_duration", "set minimum detected black duration in seconds", OFFSET(black_min_duration_time), AV_OPT_TYPE_DOUBLE, {.dbl=2}, 0, DBL_MAX, FLAGS },
+    { "picture_black_ratio_th", "set the picture black ratio threshold", OFFSET(picture_black_ratio_th), AV_OPT_TYPE_DOUBLE, {.dbl=.98}, 0, 1, FLAGS },
+    { "pic_th",                 "set the picture black ratio threshold", OFFSET(picture_black_ratio_th), AV_OPT_TYPE_DOUBLE, {.dbl=.98}, 0, 1, FLAGS },
+    { "pixel_black_th", "set the pixel black threshold", OFFSET(pixel_black_th), AV_OPT_TYPE_DOUBLE, {.dbl=.10}, 0, 1, FLAGS },
+    { "pix_th",         "set the pixel black threshold", OFFSET(pixel_black_th), AV_OPT_TYPE_DOUBLE, {.dbl=.10}, 0, 1, FLAGS },
     { NULL },
 };
 
@@ -80,7 +82,7 @@ static int query_formats(AVFilterContext *ctx)
     return 0;
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     int ret;
     BlackDetectContext *blackdetect = ctx->priv;
@@ -88,10 +90,8 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
     blackdetect->class = &blackdetect_class;
     av_opt_set_defaults(blackdetect);
 
-    if ((ret = av_set_options_string(blackdetect, args, "=", ":")) < 0) {
-        av_log(ctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+    if ((ret = av_set_options_string(blackdetect, args, "=", ":")) < 0)
         return ret;
-    }
 
     return 0;
 }
@@ -109,7 +109,7 @@ static int config_input(AVFilterLink *inlink)
              blackdetect->pixel_black_th *  255 :
         16 + blackdetect->pixel_black_th * (235 - 16);
 
-    av_log(blackdetect, AV_LOG_INFO,
+    av_log(blackdetect, AV_LOG_VERBOSE,
            "black_min_duration:%s pixel_black_th:%f pixel_black_th_i:%d picture_black_ratio_th:%f\n",
            av_ts2timestr(blackdetect->black_min_duration, &inlink->time_base),
            blackdetect->pixel_black_th, blackdetect->pixel_black_th_i,
@@ -146,7 +146,7 @@ static int request_frame(AVFilterLink *outlink)
     return ret;
 }
 
-static void draw_slice(AVFilterLink *inlink, int y, int h, int slice_dir)
+static int draw_slice(AVFilterLink *inlink, int y, int h, int slice_dir)
 {
     AVFilterContext *ctx = inlink->dst;
     BlackDetectContext *blackdetect = ctx->priv;
@@ -160,10 +160,10 @@ static void draw_slice(AVFilterLink *inlink, int y, int h, int slice_dir)
         p += picref->linesize[0];
     }
 
-    ff_draw_slice(ctx->outputs[0], y, h, slice_dir);
+    return ff_draw_slice(ctx->outputs[0], y, h, slice_dir);
 }
 
-static void end_frame(AVFilterLink *inlink)
+static int end_frame(AVFilterLink *inlink)
 {
     AVFilterContext *ctx = inlink->dst;
     BlackDetectContext *blackdetect = ctx->priv;
@@ -194,8 +194,7 @@ static void end_frame(AVFilterLink *inlink)
     blackdetect->last_picref_pts = picref->pts;
     blackdetect->frame_count++;
     blackdetect->nb_black_pixels = 0;
-    avfilter_unref_buffer(picref);
-    ff_end_frame(inlink->dst->outputs[0]);
+    return ff_end_frame(inlink->dst->outputs[0]);
 }
 
 AVFilter avfilter_vf_blackdetect = {
@@ -211,7 +210,7 @@ AVFilter avfilter_vf_blackdetect = {
           .config_props     = config_input,
           .draw_slice       = draw_slice,
           .get_video_buffer = ff_null_get_video_buffer,
-          .start_frame      = ff_null_start_frame_keep_ref,
+          .start_frame      = ff_null_start_frame,
           .end_frame        = end_frame, },
         { .name = NULL }
     },
@@ -222,4 +221,5 @@ AVFilter avfilter_vf_blackdetect = {
           .request_frame    = request_frame, },
         { .name = NULL }
     },
+    .priv_class = &blackdetect_class,
 };

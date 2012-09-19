@@ -26,6 +26,7 @@
  */
 
 #include "libavutil/imgutils.h"
+#include "libavutil/avassert.h"
 #include "avfilter.h"
 #include "internal.h"
 
@@ -80,7 +81,7 @@ static int query_formats(AVFilterContext *ctx)
     return 0;
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     TInterlaceContext *tinterlace = ctx->priv;
     int i;
@@ -154,7 +155,7 @@ static int config_out_props(AVFilterLink *outlink)
                    tinterlace->black_linesize[i] * h);
         }
     }
-    av_log(ctx, AV_LOG_INFO, "mode:%s h:%d -> h:%d\n",
+    av_log(ctx, AV_LOG_VERBOSE, "mode:%s h:%d -> h:%d\n",
            tinterlace_mode_str[tinterlace->mode], inlink->h, outlink->h);
 
     return 0;
@@ -174,7 +175,7 @@ static int config_out_props(AVFilterLink *outlink)
  */
 static inline
 void copy_picture_field(uint8_t *dst[4], int dst_linesize[4],
-                        uint8_t *src[4], int src_linesize[4],
+                        const uint8_t *src[4], int src_linesize[4],
                         enum PixelFormat format, int w, int src_h,
                         int src_field, int interleave, int dst_field)
 {
@@ -186,7 +187,7 @@ void copy_picture_field(uint8_t *dst[4], int dst_linesize[4],
         int lines = plane == 1 || plane == 2 ? src_h >> vsub : src_h;
         int linesize = av_image_get_linesize(format, w, plane);
         uint8_t *dstp = dst[plane];
-        uint8_t *srcp = src[plane];
+        const uint8_t *srcp = src[plane];
         lines /= k;
         if (src_field == FIELD_LOWER)
             srcp += src_linesize[plane];
@@ -197,7 +198,7 @@ void copy_picture_field(uint8_t *dst[4], int dst_linesize[4],
     }
 }
 
-static void start_frame(AVFilterLink *inlink, AVFilterBufferRef *picref)
+static int start_frame(AVFilterLink *inlink, AVFilterBufferRef *picref)
 {
     AVFilterContext *ctx = inlink->dst;
     TInterlaceContext *tinterlace = ctx->priv;
@@ -205,9 +206,11 @@ static void start_frame(AVFilterLink *inlink, AVFilterBufferRef *picref)
     avfilter_unref_buffer(tinterlace->cur);
     tinterlace->cur  = tinterlace->next;
     tinterlace->next = picref;
+    inlink->cur_buf = NULL;
+    return 0;
 }
 
-static void end_frame(AVFilterLink *inlink)
+static int end_frame(AVFilterLink *inlink)
 {
     AVFilterContext *ctx = inlink->dst;
     AVFilterLink *outlink = ctx->outputs[0];
@@ -219,7 +222,7 @@ static void end_frame(AVFilterLink *inlink)
 
     /* we need at least two frames */
     if (!tinterlace->cur)
-        return;
+        return 0;
 
     switch (tinterlace->mode) {
     case MODE_MERGE: /* move the odd frame into the upper field of the new image, even into
@@ -232,12 +235,12 @@ static void end_frame(AVFilterLink *inlink)
 
         /* write odd frame lines into the upper field of the new frame */
         copy_picture_field(out->data, out->linesize,
-                           cur->data, cur->linesize,
+                           (const uint8_t **)cur->data, cur->linesize,
                            inlink->format, inlink->w, inlink->h,
                            FIELD_UPPER_AND_LOWER, 1, FIELD_UPPER);
         /* write even frame lines into the lower field of the new frame */
         copy_picture_field(out->data, out->linesize,
-                           next->data, next->linesize,
+                           (const uint8_t **)next->data, next->linesize,
                            inlink->format, inlink->w, inlink->h,
                            FIELD_UPPER_AND_LOWER, 1, FIELD_LOWER);
         avfilter_unref_bufferp(&tinterlace->next);
@@ -258,12 +261,12 @@ static void end_frame(AVFilterLink *inlink)
         field = (1 + tinterlace->frame) & 1 ? FIELD_UPPER : FIELD_LOWER;
         /* copy upper and lower fields */
         copy_picture_field(out->data, out->linesize,
-                           cur->data, cur->linesize,
+                           (const uint8_t **)cur->data, cur->linesize,
                            inlink->format, inlink->w, inlink->h,
                            FIELD_UPPER_AND_LOWER, 1, field);
         /* pad with black the other field */
         copy_picture_field(out->data, out->linesize,
-                           tinterlace->black_data, tinterlace->black_linesize,
+                           (const uint8_t **)tinterlace->black_data, tinterlace->black_linesize,
                            inlink->format, inlink->w, inlink->h,
                            FIELD_UPPER_AND_LOWER, 1, !field);
         break;
@@ -280,19 +283,19 @@ static void end_frame(AVFilterLink *inlink)
 
         /* copy upper/lower field from cur */
         copy_picture_field(out->data, out->linesize,
-                           cur->data, cur->linesize,
+                           (const uint8_t **)cur->data, cur->linesize,
                            inlink->format, inlink->w, inlink->h,
                            tff ? FIELD_UPPER : FIELD_LOWER, 1, tff ? FIELD_UPPER : FIELD_LOWER);
         /* copy lower/upper field from next */
         copy_picture_field(out->data, out->linesize,
-                           next->data, next->linesize,
+                           (const uint8_t **)next->data, next->linesize,
                            inlink->format, inlink->w, inlink->h,
                            tff ? FIELD_LOWER : FIELD_UPPER, 1, tff ? FIELD_LOWER : FIELD_UPPER);
         avfilter_unref_bufferp(&tinterlace->next);
         break;
     case MODE_INTERLACEX2: /* re-interlace preserving image height, double frame rate */
         /* output current frame first */
-        out = avfilter_ref_buffer(cur, AV_PERM_READ);
+        out = avfilter_ref_buffer(cur, ~AV_PERM_WRITE);
         out->video->interlaced = 1;
 
         ff_start_frame(outlink, out);
@@ -307,12 +310,12 @@ static void end_frame(AVFilterLink *inlink)
 
         /* write current frame second field lines into the second field of the new frame */
         copy_picture_field(out->data, out->linesize,
-                           cur->data, cur->linesize,
+                           (const uint8_t **)cur->data, cur->linesize,
                            inlink->format, inlink->w, inlink->h,
                            tff ? FIELD_LOWER : FIELD_UPPER, 1, tff ? FIELD_LOWER : FIELD_UPPER);
         /* write next frame first field lines into the first field of the new frame */
         copy_picture_field(out->data, out->linesize,
-                           next->data, next->linesize,
+                           (const uint8_t **)next->data, next->linesize,
                            inlink->format, inlink->w, inlink->h,
                            tff ? FIELD_UPPER : FIELD_LOWER, 1, tff ? FIELD_UPPER : FIELD_LOWER);
         break;
@@ -323,6 +326,8 @@ static void end_frame(AVFilterLink *inlink)
     ff_end_frame(outlink);
 
     tinterlace->frame++;
+
+    return 0;
 }
 
 static int poll_frame(AVFilterLink *outlink)
@@ -338,7 +343,7 @@ static int poll_frame(AVFilterLink *outlink)
             return ret;
         val = ff_poll_frame(inlink);
     }
-    assert(tinterlace->next);
+    av_assert0(tinterlace->next);
 
     return val;
 }
@@ -358,7 +363,7 @@ static int request_frame(AVFilterLink *outlink)
     return 0;
 }
 
-static void null_draw_slice(AVFilterLink *link, int y, int h, int slice_dir) { }
+static int null_draw_slice(AVFilterLink *link, int y, int h, int slice_dir) { return 0; }
 
 AVFilter avfilter_vf_tinterlace = {
     .name          = "tinterlace",

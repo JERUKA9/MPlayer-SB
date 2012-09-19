@@ -37,7 +37,7 @@ typedef struct {
     enum SetFieldMode mode;
 } SetFieldContext;
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     SetFieldContext *setfield = ctx->priv;
 
@@ -69,7 +69,7 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
     return 0;
 }
 
-static void start_frame(AVFilterLink *inlink, AVFilterBufferRef *inpicref)
+static int start_frame(AVFilterLink *inlink, AVFilterBufferRef *inpicref)
 {
     SetFieldContext *setfield = inlink->dst->priv;
     AVFilterBufferRef *outpicref = avfilter_ref_buffer(inpicref, ~0);
@@ -80,7 +80,7 @@ static void start_frame(AVFilterLink *inlink, AVFilterBufferRef *inpicref)
         outpicref->video->interlaced = 1;
         outpicref->video->top_field_first = setfield->mode;
     }
-    ff_start_frame(inlink->dst->outputs[0], outpicref);
+    return ff_start_frame(inlink->dst->outputs[0], outpicref);
 }
 
 AVFilter avfilter_vf_setfield = {

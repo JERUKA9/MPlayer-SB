@@ -118,9 +118,6 @@ static void filter(AVFilterContext *ctx)
             delta          += idet->filter_line(cur-refs,  cur, cur+refs, w);
         }
     }
-#if HAVE_MMX
-    __asm__ volatile("emms \n\t" : : : "memory");
-#endif
 
     if      (alpha[0] / (float)alpha[1] > idet->interlace_threshold){
         type = TFF;
@@ -169,7 +166,7 @@ static void filter(AVFilterContext *ctx)
     av_log(ctx, AV_LOG_DEBUG, "Single frame:%s, Multi frame:%s\n", type2str(type), type2str(idet->last_type));
 }
 
-static void start_frame(AVFilterLink *link, AVFilterBufferRef *picref)
+static int start_frame(AVFilterLink *link, AVFilterBufferRef *picref)
 {
     AVFilterContext *ctx = link->dst;
     IDETContext *idet = ctx->priv;
@@ -181,21 +178,21 @@ static void start_frame(AVFilterLink *link, AVFilterBufferRef *picref)
     idet->next = picref;
 
     if (!idet->cur)
-        return;
+        return 0;
 
     if (!idet->prev)
-        idet->prev = avfilter_ref_buffer(idet->cur, AV_PERM_READ);
+        idet->prev = avfilter_ref_buffer(idet->cur, ~0);
 
-    ff_start_frame(ctx->outputs[0], avfilter_ref_buffer(idet->cur, AV_PERM_READ));
+    return ff_start_frame(ctx->outputs[0], avfilter_ref_buffer(idet->cur, ~0));
 }
 
-static void end_frame(AVFilterLink *link)
+static int end_frame(AVFilterLink *link)
 {
     AVFilterContext *ctx = link->dst;
     IDETContext *idet = ctx->priv;
 
     if (!idet->cur)
-        return;
+        return 0;
 
     if (!idet->csp)
         idet->csp = &av_pix_fmt_descriptors[link->format];
@@ -205,7 +202,7 @@ static void end_frame(AVFilterLink *link)
     filter(ctx);
 
     ff_draw_slice(ctx->outputs[0], 0, link->h, 1);
-    ff_end_frame(ctx->outputs[0]);
+    return ff_end_frame(ctx->outputs[0]);
 }
 
 static int request_frame(AVFilterLink *link)
@@ -292,7 +289,7 @@ static int query_formats(AVFilterContext *ctx)
     return 0;
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     IDETContext *idet = ctx->priv;
 
@@ -311,7 +308,7 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
     return 0;
 }
 
-static void null_draw_slice(AVFilterLink *link, int y, int h, int slice_dir) { }
+static int null_draw_slice(AVFilterLink *link, int y, int h, int slice_dir) { return 0; }
 
 AVFilter avfilter_vf_idet = {
     .name          = "idet",
@@ -327,11 +324,12 @@ AVFilter avfilter_vf_idet = {
                                           .start_frame      = start_frame,
                                           .draw_slice       = null_draw_slice,
                                           .end_frame        = end_frame,
-                                          .rej_perms        = AV_PERM_REUSE2, },
+                                          .min_perms        = AV_PERM_PRESERVE },
                                         { .name = NULL}},
 
     .outputs   = (const AVFilterPad[]) {{ .name       = "default",
                                           .type             = AVMEDIA_TYPE_VIDEO,
+                                          .rej_perms        = AV_PERM_WRITE,
                                           .poll_frame       = poll_frame,
                                           .request_frame    = request_frame, },
                                         { .name = NULL}},

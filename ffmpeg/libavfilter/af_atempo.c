@@ -40,6 +40,7 @@
 
 #include <float.h>
 #include "libavcodec/avfft.h"
+#include "libavutil/audioconvert.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/eval.h"
@@ -208,14 +209,16 @@ static void yae_release_buffers(ATempoContext *atempo)
     atempo->complex_to_real = NULL;
 }
 
-#define REALLOC_OR_FAIL(field, field_size)                      \
+/* av_realloc is not aligned enough; fortunately, the data does not need to
+ * be preserved */
+#define RE_MALLOC_OR_FAIL(field, field_size)                    \
     do {                                                        \
-        void * new_field = av_realloc(field, (field_size));     \
-        if (!new_field) {                                       \
+        av_freep(&field);                                       \
+        field = av_malloc(field_size);                          \
+        if (!field) {                                           \
             yae_release_buffers(atempo);                        \
             return AVERROR(ENOMEM);                             \
         }                                                       \
-        field = new_field;                                      \
     } while (0)
 
 /**
@@ -250,10 +253,10 @@ static int yae_reset(ATempoContext *atempo,
     }
 
     // initialize audio fragment buffers:
-    REALLOC_OR_FAIL(atempo->frag[0].data, atempo->window * atempo->stride);
-    REALLOC_OR_FAIL(atempo->frag[1].data, atempo->window * atempo->stride);
-    REALLOC_OR_FAIL(atempo->frag[0].xdat, atempo->window * sizeof(FFTComplex));
-    REALLOC_OR_FAIL(atempo->frag[1].xdat, atempo->window * sizeof(FFTComplex));
+    RE_MALLOC_OR_FAIL(atempo->frag[0].data, atempo->window * atempo->stride);
+    RE_MALLOC_OR_FAIL(atempo->frag[1].data, atempo->window * atempo->stride);
+    RE_MALLOC_OR_FAIL(atempo->frag[0].xdat, atempo->window * sizeof(FFTComplex));
+    RE_MALLOC_OR_FAIL(atempo->frag[1].xdat, atempo->window * sizeof(FFTComplex));
 
     // initialize rDFT contexts:
     av_rdft_end(atempo->real_to_complex);
@@ -274,13 +277,13 @@ static int yae_reset(ATempoContext *atempo,
         return AVERROR(ENOMEM);
     }
 
-    REALLOC_OR_FAIL(atempo->correlation, atempo->window * sizeof(FFTComplex));
+    RE_MALLOC_OR_FAIL(atempo->correlation, atempo->window * sizeof(FFTComplex));
 
     atempo->ring = atempo->window * 3;
-    REALLOC_OR_FAIL(atempo->buffer, atempo->ring * atempo->stride);
+    RE_MALLOC_OR_FAIL(atempo->buffer, atempo->ring * atempo->stride);
 
     // initialize the Hann window function:
-    REALLOC_OR_FAIL(atempo->hann, atempo->window * sizeof(float));
+    RE_MALLOC_OR_FAIL(atempo->hann, atempo->window * sizeof(float));
 
     for (i = 0; i < atempo->window; i++) {
         double t = (double)i / (double)(atempo->window - 1);
@@ -552,7 +555,6 @@ static int yae_load_frag(ATempoContext *atempo,
 
     if (n1) {
         memcpy(dst, b + i1 * atempo->stride, n1 * atempo->stride);
-        dst += n1 * atempo->stride;
     }
 
     return 0;
@@ -947,7 +949,7 @@ static int yae_flush(ATempoContext *atempo,
     return atempo->position[1] == stop_here ? 0 : AVERROR(EAGAIN);
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     ATempoContext *atempo = ctx->priv;
 
@@ -1039,7 +1041,7 @@ static void push_samples(ATempoContext *atempo,
     atempo->nsamples_out += n_out;
 }
 
-static void filter_samples(AVFilterLink *inlink,
+static int filter_samples(AVFilterLink *inlink,
                            AVFilterBufferRef *src_buffer)
 {
     AVFilterContext  *ctx = inlink->dst;
@@ -1073,6 +1075,7 @@ static void filter_samples(AVFilterLink *inlink,
 
     atempo->nsamples_in += n_in;
     avfilter_unref_bufferp(&src_buffer);
+    return 0;
 }
 
 static int request_frame(AVFilterLink *outlink)

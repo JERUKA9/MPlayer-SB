@@ -25,6 +25,7 @@
 #include "avcodec.h"
 #include "bytestream.h"
 #include "libavutil/bswap.h"
+#include "libavcodec/dsputil.h"
 #include "sanm_data.h"
 
 #define NGLYPHS 256
@@ -283,7 +284,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
         ctx->subversion = AV_RL16(avctx->extradata);
         for (i = 0; i < 256; i++)
-            ctx->pal[i] = AV_RL32(avctx->extradata + 2 + i * 4);
+            ctx->pal[i] = 0xFF << 24 | AV_RL32(avctx->extradata + 2 + i * 4);
     }
 
     return 0;
@@ -449,8 +450,7 @@ static int old_codec37(SANMVideoContext *ctx, int top,
                     int code;
                     if (skip_run) {
                         skip_run--;
-                        for (k = 0; k < 4; k++)
-                            memcpy(dst + i + k * stride, prev + i + k * stride, 4);
+                        copy_block4(dst + i, prev + i, stride, stride, 4);
                         continue;
                     }
                     if (bytestream2_get_bytes_left(&ctx->gb) < 1)
@@ -480,9 +480,8 @@ static int old_codec37(SANMVideoContext *ctx, int top,
                         if (compr == 4 && !code) {
                             if (bytestream2_get_bytes_left(&ctx->gb) < 1)
                                 return AVERROR_INVALIDDATA;
-                            skip_run = bytestream2_get_byteu(&ctx->gb);
-                            for (k = 0; k < 4; k++)
-                                memcpy(dst + i + k * stride, prev + i + k * stride, 4);
+                            skip_run = bytestream2_get_byteu(&ctx->gb) + 1;
+                            i -= 4;
                         } else {
                             int mx, my;
 
@@ -502,8 +501,7 @@ static int old_codec37(SANMVideoContext *ctx, int top,
                     int code;
                     if (skip_run) {
                         skip_run--;
-                        for (k = 0; k < 4; k++)
-                            memcpy(dst + i + k * stride, prev + i + k * stride, 4);
+                        copy_block4(dst + i, prev + i, stride, stride, 4);
                         continue;
                     }
                     code = bytestream2_get_byte(&ctx->gb);
@@ -770,10 +768,21 @@ static int decode_nop(SANMVideoContext *ctx)
 
 static void copy_block(uint16_t *pdest, uint16_t *psrc, int block_size, int pitch)
 {
-    int y;
+    uint8_t *dst = (uint8_t *)pdest;
+    uint8_t *src = (uint8_t *)psrc;
+    int stride = pitch * 2;
 
-    for (y = 0; y != block_size; y++, pdest += pitch, psrc += pitch)
-        memcpy(pdest, psrc, block_size * sizeof(pdest[0]));
+    switch (block_size) {
+    case 2:
+        copy_block4(dst, src, stride, stride, 2);
+        break;
+    case 4:
+        copy_block8(dst, src, stride, stride, 4);
+        break;
+    case 8:
+        copy_block16(dst, src, stride, stride, 8);
+        break;
+    }
 }
 
 static void fill_block(uint16_t *pdest, uint16_t color, int block_size, int pitch)
@@ -781,8 +790,8 @@ static void fill_block(uint16_t *pdest, uint16_t color, int block_size, int pitc
     int x, y;
 
     pitch -= block_size;
-    for (y = 0; y != block_size; y++, pdest += pitch)
-        for (x = 0; x != block_size; x++)
+    for (y = 0; y < block_size; y++, pdest += pitch)
+        for (x = 0; x < block_size; x++)
             *pdest++ = color;
 }
 
@@ -972,8 +981,8 @@ static int decode_2(SANMVideoContext *ctx)
 {
     int cx, cy, ret;
 
-    for (cy = 0; cy != ctx->aligned_height; cy += 8) {
-        for (cx = 0; cx != ctx->aligned_width; cx += 8) {
+    for (cy = 0; cy < ctx->aligned_height; cy += 8) {
+        for (cx = 0; cx < ctx->aligned_width; cx += 8) {
             if (ret = codec2subblock(ctx, cx, cy, 8))
                 return ret;
         }
@@ -1163,7 +1172,7 @@ static int decode_frame(AVCodecContext *avctx, void *data,
                     return AVERROR_INVALIDDATA;
                 }
                 for (i = 0; i < 256; i++)
-                    ctx->pal[i] = bytestream2_get_be24u(&ctx->gb);
+                    ctx->pal[i] = 0xFF << 24 | bytestream2_get_be24u(&ctx->gb);
                 break;
             case MKBETAG('F', 'O', 'B', 'J'):
                 if (size < 16)
@@ -1181,7 +1190,7 @@ static int decode_frame(AVCodecContext *avctx, void *data,
                             int t = (ctx->pal[i] >> (16 - j * 8)) & 0xFF;
                             tmp[j] = av_clip_uint8((t * 129 + ctx->delta_pal[i * 3 + j]) >> 7);
                         }
-                        ctx->pal[i] = AV_RB24(tmp);
+                        ctx->pal[i] = 0xFF << 24 | AV_RB24(tmp);
                     }
                 } else {
                     if (size < 768 * 2 + 4) {
@@ -1194,7 +1203,7 @@ static int decode_frame(AVCodecContext *avctx, void *data,
                         ctx->delta_pal[i] = bytestream2_get_le16u(&ctx->gb);
                     if (size >= 768 * 5 + 4) {
                         for (i = 0; i < 256; i++)
-                            ctx->pal[i] = bytestream2_get_be24u(&ctx->gb);
+                            ctx->pal[i] = 0xFF << 24 | bytestream2_get_be24u(&ctx->gb);
                     } else {
                         memset(ctx->pal, 0, sizeof(ctx->pal));
                     }
@@ -1263,7 +1272,7 @@ static int decode_frame(AVCodecContext *avctx, void *data,
 AVCodec ff_sanm_decoder = {
     .name           = "sanm",
     .type           = AVMEDIA_TYPE_VIDEO,
-    .id             = CODEC_ID_SANM,
+    .id             = AV_CODEC_ID_SANM,
     .priv_data_size = sizeof(SANMVideoContext),
     .init           = decode_init,
     .close          = decode_end,

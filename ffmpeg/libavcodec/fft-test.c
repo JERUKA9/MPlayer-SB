@@ -34,7 +34,9 @@
 #include "rdft.h"
 #endif
 #include <math.h>
+#if HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -229,6 +231,10 @@ enum tf_transform {
     TRANSFORM_DCT,
 };
 
+#if !HAVE_GETOPT
+#include "compat/getopt.c"
+#endif
+
 int main(int argc, char **argv)
 {
     FFTComplex *tab, *tab1, *tab_ref;
@@ -282,10 +288,12 @@ int main(int argc, char **argv)
             scale = atof(optarg);
             break;
         case 'c':
-            cpuflags = av_parse_cpu_flags(optarg);
-            if (cpuflags < 0)
+            cpuflags = av_get_cpu_flags();
+
+            if (av_parse_cpu_caps(&cpuflags, optarg) < 0)
                 return 1;
-            av_set_cpu_flags_mask(cpuflags);
+
+            av_force_cpu_flags(cpuflags);
             break;
         }
     }
