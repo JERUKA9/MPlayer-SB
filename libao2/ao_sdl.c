@@ -143,7 +143,7 @@ static int init(int rate,int channels,int format,int flags){
 	mp_msg(MSGT_AO,MSGL_INFO,MSGTR_AO_SDL_INFO, rate, (channels > 1) ? "Stereo" : "Mono", af_fmt2str_short(format));
 
 	if(ao_subdevice) {
-		putenv("SDL_AUDIODRIVER=1");
+		setenv("SDL_AUDIODRIVER", ao_subdevice, 1);
 		mp_msg(MSGT_AO,MSGL_INFO,MSGTR_AO_SDL_DriverInfo, ao_subdevice);
 	}
 

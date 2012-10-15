@@ -1,7 +1,7 @@
 /*
  * FFV1 codec for libavcodec
  *
- * Copyright (c) 2003 Michael Niedermayer <michaelni@gmx.at>
+ * Copyright (c) 2003-2012 Michael Niedermayer <michaelni@gmx.at>
  *
  * This file is part of FFmpeg.
  *
@@ -405,7 +405,6 @@ static inline void update_vlc_state(VlcState * const state, const int v){
 
 static inline void put_vlc_symbol(PutBitContext *pb, VlcState * const state, int v, int bits){
     int i, k, code;
-//printf("final: %d ", v);
     v = fold(v - state->bias, bits);
 
     i= state->count;
@@ -415,7 +414,7 @@ static inline void put_vlc_symbol(PutBitContext *pb, VlcState * const state, int
         i += i;
     }
 
-    assert(k<=8);
+    av_assert2(k<=13);
 
 #if 0 // JPEG LS
     if(k==0 && 2*state->drift <= - state->count) code= v ^ (-1);
@@ -424,7 +423,8 @@ static inline void put_vlc_symbol(PutBitContext *pb, VlcState * const state, int
      code= v ^ ((2*state->drift + state->count)>>31);
 #endif
 
-//printf("v:%d/%d bias:%d error:%d drift:%d count:%d k:%d\n", v, code, state->bias, state->error_sum, state->drift, state->count, k);
+     av_dlog(NULL, "v:%d/%d bias:%d error:%d drift:%d count:%d k:%d\n", v, code,
+             state->bias, state->error_sum, state->drift, state->count, k);
     set_sr_golomb(pb, code, k, 12, bits);
 
     update_vlc_state(state, v);
@@ -443,7 +443,8 @@ static inline int get_vlc_symbol(GetBitContext *gb, VlcState * const state, int 
     assert(k<=8);
 
     v= get_sr_golomb(gb, k, 12, bits);
-//printf("v:%d bias:%d error:%d drift:%d count:%d k:%d", v, state->bias, state->error_sum, state->drift, state->count, k);
+    av_dlog(NULL, "v:%d bias:%d error:%d drift:%d count:%d k:%d",
+            v, state->bias, state->error_sum, state->drift, state->count, k);
 
 #if 0 // JPEG LS
     if(k==0 && 2*state->drift <= - state->count) v ^= (-1);
@@ -454,7 +455,7 @@ static inline int get_vlc_symbol(GetBitContext *gb, VlcState * const state, int 
     ret= fold(v + state->bias, bits);
 
     update_vlc_state(state, v);
-//printf("final: %d\n", ret);
+
     return ret;
 }
 
@@ -523,7 +524,9 @@ static av_always_inline int encode_line(FFV1Context *s, int w,
                 }
             }
 
-//            printf("count:%d index:%d, mode:%d, x:%d y:%d pos:%d\n", run_count, run_index, run_mode, x, y, (int)put_bits_count(&s->pb));
+            av_dlog(s->avctx, "count:%d index:%d, mode:%d, x:%d pos:%d\n",
+                    run_count, run_index, run_mode, x,
+                    (int)put_bits_count(&s->pb));
 
             if(run_mode == 0)
                 put_vlc_symbol(&s->pb, &p->vlc_state[context], diff, bits);
@@ -616,8 +619,6 @@ static void encode_rgb_frame(FFV1Context *s, uint8_t *src[3], int w, int h, int 
             b += offset;
             r += offset;
 
-//            assert(g>=0 && b>=0 && r>=0);
-//            assert(g<256 && b<512 && r<512);
             sample[0][0][x]= g;
             sample[1][0][x]= b;
             sample[2][0][x]= r;
@@ -699,6 +700,9 @@ static void write_header(FFV1Context *f){
 static av_cold int common_init(AVCodecContext *avctx){
     FFV1Context *s = avctx->priv_data;
 
+    if(!avctx->width || !avctx->height)
+        return AVERROR_INVALIDDATA;
+
     s->avctx= avctx;
     s->flags= avctx->flags;
 
@@ -709,7 +713,6 @@ static av_cold int common_init(AVCodecContext *avctx){
     s->width = avctx->width;
     s->height= avctx->height;
 
-    assert(s->width && s->height);
     //defaults
     s->num_h_slices=1;
     s->num_v_slices=1;
@@ -815,8 +818,11 @@ static int write_extra_header(FFV1Context *f){
     ff_build_rac_states(c, 0.05*(1LL<<32), 256-8);
 
     put_symbol(c, state, f->version, 0);
-    if(f->version > 2)
+    if(f->version > 2) {
+        if(f->version == 3)
+            f->minor_version = 2;
         put_symbol(c, state, f->minor_version, 0);
+    }
     put_symbol(c, state, f->ac, 0);
     if(f->ac>1){
         for(i=1; i<256; i++){
@@ -1238,6 +1244,8 @@ static int encode_slice(AVCodecContext *c, void *arg){
         encode_slice_header(f, fs);
     }
     if(!fs->ac){
+        if(f->version > 2)
+            put_rac(&fs->c, (int[]){129}, 0);
         fs->ac_byte_count = f->version > 2 || (!x&&!y) ? ff_rac_terminate(&fs->c) : 0;
         init_put_bits(&fs->pb, fs->c.bytestream_start + fs->ac_byte_count, fs->c.bytestream_end - fs->c.bytestream_start - fs->ac_byte_count);
     }
@@ -1308,9 +1316,8 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
 
     for(i=1; i<f->slice_count; i++){
         FFV1Context *fs= f->slice_context[i];
-        uint8_t *start = pkt->data + (pkt->size-used_count)*i/f->slice_count;
+        uint8_t *start = pkt->data + (pkt->size-used_count)*(int64_t)i/f->slice_count;
         int len = pkt->size/f->slice_count;
-
         ff_init_range_encoder(&fs->c, start, len);
     }
     avctx->execute(avctx, encode_slice, &f->slice_context[0], NULL, f->slice_count, sizeof(void*));
@@ -1321,7 +1328,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         int bytes;
 
         if(fs->ac){
-            uint8_t state=128;
+            uint8_t state=129;
             put_rac(&fs->c, &state, 0);
             bytes= ff_rac_terminate(&fs->c);
         }else{
@@ -1484,7 +1491,8 @@ static av_always_inline void decode_line(FFV1Context *s, int w,
             }else
                 diff= get_vlc_symbol(&s->gb, &p->vlc_state[context], bits);
 
-//            printf("count:%d index:%d, mode:%d, x:%d y:%d pos:%d\n", run_count, run_index, run_mode, x, y, get_bits_count(&s->gb));
+            av_dlog(s->avctx, "count:%d index:%d, mode:%d, x:%d pos:%d\n",
+                    run_count, run_index, run_mode, x, get_bits_count(&s->gb));
         }
 
         if(sign) diff= -diff;
@@ -1569,9 +1577,6 @@ static void decode_rgb_frame(FFV1Context *s, uint8_t *src[3], int w, int h, int 
             int b= sample[1][1][x];
             int r= sample[2][1][x];
             int a= sample[3][1][x];
-
-//            assert(g>=0 && b>=0 && r>=0);
-//            assert(g<256 && b<512 && r<512);
 
             b -= offset;
             r -= offset;
@@ -1672,6 +1677,8 @@ static int decode_slice(AVCodecContext *c, void *arg){
     y= fs->slice_y;
 
     if(!fs->ac){
+        if (f->version == 3 && f->minor_version > 1 || f->version > 3)
+            get_rac(&fs->c, (int[]){129});
         fs->ac_byte_count = f->version > 2 || (!x&&!y) ? fs->c.bytestream - fs->c.bytestream_start - 1 : 0;
         init_get_bits(&fs->gb,
                       fs->c.bytestream_start + fs->ac_byte_count,
@@ -1699,8 +1706,10 @@ static int decode_slice(AVCodecContext *c, void *arg){
         decode_rgb_frame(fs, planes, width, height, p->linesize);
     }
     if(fs->ac && f->version > 2) {
-        int v = fs->c.bytestream_end - fs->c.bytestream - 3 - 5*f->ec;
-        if(v != -1 && v!= 0) {
+        int v;
+        get_rac(&fs->c, (int[]){129});
+        v = fs->c.bytestream_end - fs->c.bytestream - 2 - 5*f->ec;
+        if(v) {
             av_log(f->avctx, AV_LOG_ERROR, "bytestream end mismatching by %d\n", v);
             fs->slice_damaged = 1;
         }
@@ -1726,8 +1735,6 @@ static int read_quant_table(RangeCoder *c, int16_t *quant_table, int scale){
         while(len--){
             quant_table[i] = scale*v;
             i++;
-//printf("%2d ",v);
-//if(i%16==0) printf("\n");
         }
     }
 
@@ -1937,7 +1944,8 @@ static int read_header(FFV1Context *f){
         return -1;
     }
 
-//printf("%d %d %d\n", f->chroma_h_shift, f->chroma_v_shift,f->avctx->pix_fmt);
+    av_dlog(f->avctx, "%d %d %d\n",
+            f->chroma_h_shift, f->chroma_v_shift, f->avctx->pix_fmt);
     if(f->version < 2){
         context_count= read_quant_tables(c, f->quant_table);
         if(context_count < 0){
@@ -2071,8 +2079,8 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     }
 
     if(avctx->debug&FF_DEBUG_PICT_INFO)
-        av_log(avctx, AV_LOG_DEBUG, "ver:%d keyframe:%d coder:%d ec:%d slices:%d\n",
-               f->version, p->key_frame, f->ac, f->ec, f->slice_count);
+        av_log(avctx, AV_LOG_DEBUG, "ver:%d keyframe:%d coder:%d ec:%d slices:%d bps:%d\n",
+               f->version, p->key_frame, f->ac, f->ec, f->slice_count, f->avctx->bits_per_raw_sample);
 
     buf_p= buf + buf_size;
     for(i=f->slice_count-1; i>=0; i--){

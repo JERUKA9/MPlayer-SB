@@ -65,7 +65,7 @@ int vo_sdl_init(void)
         if (WinID > 0) {
             char envstr[20];
             snprintf(envstr, sizeof(envstr), "0x%"PRIx64, WinID);
-            putenv("SDL_WINDOWID=1");
+            setenv("SDL_WINDOWID", envstr, 1);
         }
         if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_NOPARACHUTE) < 0)
             return 0;
@@ -141,7 +141,7 @@ SDL_Surface *sdl_set_mode(int bpp, uint32_t flags)
     if (geometry_xy_changed) {
         char envstr[20];
         snprintf(envstr, sizeof(envstr), "%i,%i", vo_dx, vo_dy);
-        putenv("SDL_VIDEO_WINDOW_POS=1");
+        setenv("SDL_VIDEO_WINDOW_POS", envstr, 1);
     }
     s = SDL_SetVideoMode(vo_dwidth, vo_dheight, bpp, flags);
     if (!s) {

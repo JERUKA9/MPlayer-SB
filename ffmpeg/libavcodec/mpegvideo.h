@@ -53,7 +53,7 @@ enum OutputFormat {
 #define MPEG_BUF_SIZE (16 * 1024)
 
 #define QMAT_SHIFT_MMX 16
-#define QMAT_SHIFT 22
+#define QMAT_SHIFT 21
 
 #define MAX_FCODE 7
 #define MAX_MV 2048
@@ -141,6 +141,7 @@ typedef struct Picture{
     int32_t *mb_cmp_score;      ///< Table for MB cmp scores, for mb decision FIXME remove
     int b_frame_score;          /* */
     struct MpegEncContext *owner2; ///< pointer to the MpegEncContext that allocated this picture
+    int needs_realloc;          ///< Picture needs to be reallocated (eg due to a frame size change)
 } Picture;
 
 /**
@@ -346,6 +347,7 @@ typedef struct MpegEncContext {
     int last_non_b_pict_type;   ///< used for mpeg4 gmc b-frames & ratecontrol
     int dropable;
     int frame_rate_index;
+    AVRational mpeg2_frame_rate_ext;
     int last_lambda_for[5];     ///< last lambda for a specific pict type
     int skipdct;                ///< skip dct and code zero residual
 
@@ -712,6 +714,10 @@ typedef struct MpegEncContext {
 
     /* temp buffers for rate control */
     float *cplx_tab, *bits_tab;
+
+    /* flag to indicate a reinitialization is required, e.g. after
+     * a frame size change */
+    int context_reinit;
 } MpegEncContext;
 
 #define REBASE_PICTURE(pic, new_ctx, old_ctx) (pic ? \
@@ -758,6 +764,7 @@ void ff_MPV_common_defaults(MpegEncContext *s);
 
 void ff_MPV_decode_defaults(MpegEncContext *s);
 int ff_MPV_common_init(MpegEncContext *s);
+int ff_MPV_common_frame_size_change(MpegEncContext *s);
 void ff_MPV_common_end(MpegEncContext *s);
 void ff_MPV_decode_mb(MpegEncContext *s, DCTELEM block[12][64]);
 int ff_MPV_frame_start(MpegEncContext *s, AVCodecContext *avctx);
@@ -766,7 +773,7 @@ int ff_MPV_encode_init(AVCodecContext *avctx);
 int ff_MPV_encode_end(AVCodecContext *avctx);
 int ff_MPV_encode_picture(AVCodecContext *avctx, AVPacket *pkt,
                           AVFrame *frame, int *got_packet);
-void ff_MPV_encode_init_x86(MpegEncContext *s);
+void ff_dct_encode_init_x86(MpegEncContext *s);
 void ff_MPV_common_init_x86(MpegEncContext *s);
 void ff_MPV_common_init_axp(MpegEncContext *s);
 void ff_MPV_common_init_mmi(MpegEncContext *s);
@@ -793,6 +800,7 @@ void ff_er_frame_end(MpegEncContext *s);
 void ff_er_add_slice(MpegEncContext *s, int startx, int starty, int endx, int endy, int status);
 
 int ff_dct_common_init(MpegEncContext *s);
+int ff_dct_encode_init(MpegEncContext *s);
 void ff_convert_matrix(DSPContext *dsp, int (*qmat)[64], uint16_t (*qmat16)[2][64],
                        const uint16_t *quant_matrix, int bias, int qmin, int qmax, int intra);
 int ff_dct_quantize_c(MpegEncContext *s, DCTELEM *block, int n, int qscale, int *overflow);

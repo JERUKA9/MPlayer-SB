@@ -275,6 +275,7 @@ enum AVCodecID {
     AV_CODEC_ID_G2M        = MKBETAG( 0 ,'G','2','M'),
     AV_CODEC_ID_AVUI       = MKBETAG('A','V','U','I'),
     AV_CODEC_ID_AYUV       = MKBETAG('A','Y','U','V'),
+    AV_CODEC_ID_TARGA_Y216 = MKBETAG('T','2','1','6'),
     AV_CODEC_ID_V308       = MKBETAG('V','3','0','8'),
     AV_CODEC_ID_V408       = MKBETAG('V','4','0','8'),
     AV_CODEC_ID_YUV4       = MKBETAG('Y','U','V','4'),
@@ -423,6 +424,7 @@ enum AVCodecID {
     AV_CODEC_ID_RALF,
     AV_CODEC_ID_IAC,
     AV_CODEC_ID_ILBC,
+    AV_CODEC_ID_OPUS_DEPRECATED,
     AV_CODEC_ID_FFWAVESYNTH = MKBETAG('F','F','W','S'),
     AV_CODEC_ID_8SVX_RAW    = MKBETAG('8','S','V','X'),
     AV_CODEC_ID_SONIC       = MKBETAG('S','O','N','C'),
@@ -448,6 +450,7 @@ enum AVCodecID {
     AV_CODEC_ID_REALTEXT   = MKBETAG('R','T','X','T'),
     AV_CODEC_ID_SUBVIEWER  = MKBETAG('S','u','b','V'),
     AV_CODEC_ID_SUBRIP     = MKBETAG('S','R','i','p'),
+    AV_CODEC_ID_WEBVTT     = MKBETAG('W','V','T','T'),
 
     /* other specific kind of codecs (generally used for attachments) */
     AV_CODEC_ID_FIRST_UNKNOWN = 0x18000,           ///< A dummy ID pointing at the start of various fake codecs.
@@ -1606,12 +1609,15 @@ typedef struct AVCodecContext {
      *   encoded input.
      *
      * Audio:
-     *   Number of "priming" samples added to the beginning of the stream
-     *   during encoding. The decoded output will be delayed by this many
-     *   samples relative to the input to the encoder. Note that this field is
-     *   purely informational and does not directly affect the pts output by
-     *   the encoder, which should always be based on the actual presentation
-     *   time, including any delay.
+     *   For encoding, this is the number of "priming" samples added to the
+     *   beginning of the stream. The decoded output will be delayed by this
+     *   many samples relative to the input to the encoder. Note that this
+     *   field is purely informational and does not directly affect the pts
+     *   output by the encoder, which should always be based on the actual
+     *   presentation time, including any delay.
+     *   For decoding, this is the number of samples the decoder needs to
+     *   output before the decoder's output is valid. When seeking, you should
+     *   start decoding this many samples prior to your desired seek point.
      *
      * - encoding: Set by libavcodec.
      * - decoding: Set by libavcodec.
@@ -3508,7 +3514,7 @@ int avcodec_copy_context(AVCodecContext *dest, const AVCodecContext *src);
 
 /**
  * Allocate an AVFrame and set its fields to default values.  The resulting
- * struct can be deallocated by simply calling av_free().
+ * struct must be freed using avcodec_free_frame().
  *
  * @return An AVFrame filled with default values or NULL on failure.
  * @see avcodec_get_frame_defaults
@@ -3518,9 +3524,21 @@ AVFrame *avcodec_alloc_frame(void);
 /**
  * Set the fields of the given AVFrame to default values.
  *
- * @param pic The AVFrame of which the fields should be set to default values.
+ * @param frame The AVFrame of which the fields should be set to default values.
  */
-void avcodec_get_frame_defaults(AVFrame *pic);
+void avcodec_get_frame_defaults(AVFrame *frame);
+
+/**
+ * Free the frame and any dynamically allocated objects in it,
+ * e.g. extended_data.
+ *
+ * @param frame frame to be freed. The pointer will be set to NULL.
+ *
+ * @warning this function does NOT free the data buffers themselves
+ * (it does not know how, since they might have been allocated with
+ *  a custom get_buffer()).
+ */
+void avcodec_free_frame(AVFrame **frame);
 
 #if FF_API_AVCODEC_OPEN
 /**
@@ -3667,6 +3685,13 @@ int av_grow_packet(AVPacket *pkt, int grow_by);
  * packet is allocated if it was not really allocated.
  */
 int av_dup_packet(AVPacket *pkt);
+
+/**
+ * Copy packet, including contents
+ *
+ * @return 0 on success, negative AVERROR on fail
+ */
+int av_copy_packet(AVPacket *dst, AVPacket *src);
 
 /**
  * Free a packet.
@@ -4298,9 +4323,11 @@ int avcodec_encode_subtitle(AVCodecContext *avctx, uint8_t *buf, int buf_size,
  * @}
  */
 
+#if FF_API_AVCODEC_RESAMPLE
 /**
  * @defgroup lavc_resample Audio resampling
  * @ingroup libavc
+ * @deprecated use libswresample instead
  *
  * @{
  */
@@ -4325,6 +4352,7 @@ typedef struct ReSampleContext ReSampleContext;
  * @param cutoff           cutoff frequency, 1.0 corresponds to half the output sampling rate
  * @return allocated ReSampleContext, NULL if error occurred
  */
+attribute_deprecated
 ReSampleContext *av_audio_resample_init(int output_channels, int input_channels,
                                         int output_rate, int input_rate,
                                         enum AVSampleFormat sample_fmt_out,
@@ -4332,6 +4360,7 @@ ReSampleContext *av_audio_resample_init(int output_channels, int input_channels,
                                         int filter_length, int log2_phase_count,
                                         int linear, double cutoff);
 
+attribute_deprecated
 int audio_resample(ReSampleContext *s, short *output, short *input, int nb_samples);
 
 /**
@@ -4340,6 +4369,7 @@ int audio_resample(ReSampleContext *s, short *output, short *input, int nb_sampl
  * @param s a non-NULL pointer to a resample context previously
  *          created with av_audio_resample_init()
  */
+attribute_deprecated
 void audio_resample_close(ReSampleContext *s);
 
 
@@ -4352,6 +4382,7 @@ void audio_resample_close(ReSampleContext *s);
                  between the 2 closest, if 0 the closest will be used
  * @param cutoff cutoff frequency, 1.0 corresponds to half the output sampling rate
  */
+attribute_deprecated
 struct AVResampleContext *av_resample_init(int out_rate, int in_rate, int filter_length, int log2_phase_count, int linear, double cutoff);
 
 /**
@@ -4363,6 +4394,7 @@ struct AVResampleContext *av_resample_init(int out_rate, int in_rate, int filter
  * @param update_ctx If this is 0 then the context will not be modified, that way several channels can be resampled with the same context.
  * @return the number of samples written in dst or -1 if an error occurred
  */
+attribute_deprecated
 int av_resample(struct AVResampleContext *c, short *dst, short *src, int *consumed, int src_size, int dst_size, int update_ctx);
 
 
@@ -4378,12 +4410,15 @@ int av_resample(struct AVResampleContext *c, short *dst, short *src, int *consum
  * note, due to rounding the actual compensation might be slightly different,
  * especially if the compensation_distance is large and the in_rate used during init is small
  */
+attribute_deprecated
 void av_resample_compensate(struct AVResampleContext *c, int sample_delta, int compensation_distance);
+attribute_deprecated
 void av_resample_close(struct AVResampleContext *c);
 
 /**
  * @}
  */
+#endif
 
 /**
  * @addtogroup lavc_picture

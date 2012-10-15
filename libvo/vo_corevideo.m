@@ -89,22 +89,9 @@ LIBVO_EXTERN(corevideo)
 static void draw_alpha(int x0, int y0, int w, int h, unsigned char *src, unsigned char *srca, int stride)
 {
 	unsigned char *dst = image_data + image_bytes * (y0 * image_width + x0);
-	switch (image_format)
-	{
-		case IMGFMT_RGB24:
-			vo_draw_alpha_rgb24(w,h,src,srca,stride,dst,image_stride);
-			break;
-		case IMGFMT_ARGB:
-		case IMGFMT_BGRA:
-			vo_draw_alpha_rgb32(w,h,src,srca,stride,dst,image_stride);
-			break;
-		case IMGFMT_YUY2:
-			vo_draw_alpha_yuy2(w,h,src,srca,stride,dst,image_stride);
-			break;
-		case IMGFMT_UYVY:
-			vo_draw_alpha_uyvy(w,h,src,srca,stride,dst,image_stride);
-			break;
-	}
+	vo_draw_alpha_func draw = vo_get_draw_alpha(image_format);
+	if (!draw) return;
+	draw(w,h,src,srca,stride,dst,image_stride);
 }
 
 static void free_file_specific(void)
@@ -128,6 +115,16 @@ static void free_file_specific(void)
         image_datas[1] = NULL;
         image_data = NULL;
     }
+}
+
+static void update_screen_info_shared_buffer(void)
+{
+	NSRect rc = [[NSScreen mainScreen] frame];
+	vo_screenwidth  = rc.size.width;
+	vo_screenheight = rc.size.height;
+	xinerama_x = rc.origin.x;
+	xinerama_y = rc.origin.y;
+	aspect_save_screenres(vo_screenwidth, vo_screenheight);
 }
 
 static int config(uint32_t width, uint32_t height, uint32_t d_width, uint32_t d_height, uint32_t flags, char *title, uint32_t format)
@@ -165,7 +162,7 @@ static int config(uint32_t width, uint32_t height, uint32_t d_width, uint32_t d_
 		//config OpenGL View
 		[mpGLView config:d_width:d_height:flags];
 		[mpGLView reshape];
-		[[mpGLView window] setTitle:[NSString stringWithCString:vo_wintitle ? vo_wintitle : title]];
+		[[mpGLView window] setTitle:[NSString stringWithUTF8String:vo_wintitle ? vo_wintitle : title]];
 	}
 	else
 	{
@@ -205,7 +202,7 @@ static int config(uint32_t width, uint32_t height, uint32_t d_width, uint32_t d_
 		}
 
 		//connect to mplayerosx
-		mplayerosxProxy=[NSConnection rootProxyForConnectionWithRegisteredName:[NSString stringWithCString:buffer_name] host:nil];
+		mplayerosxProxy=[NSConnection rootProxyForConnectionWithRegisteredName:[NSString stringWithUTF8String:buffer_name] host:nil];
 		if ([mplayerosxProxy conformsToProtocol:@protocol(MPlayerOSXVOProto)]) {
 			[mplayerosxProxy setProtocolForProxy:@protocol(MPlayerOSXVOProto)];
 			mplayerosxProto = (id <MPlayerOSXVOProto>)mplayerosxProxy;
@@ -403,7 +400,12 @@ static int control(uint32_t request, void *data)
 		case VOCTRL_FULLSCREEN: vo_fs = !vo_fs; if(!shared_buffer){ [mpGLView fullscreen: NO]; } else { [mplayerosxProto toggleFullscreen]; } return VO_TRUE;
 		case VOCTRL_GET_PANSCAN: return VO_TRUE;
 		case VOCTRL_SET_PANSCAN: panscan_calc(); return VO_TRUE;
-		case VOCTRL_UPDATE_SCREENINFO: [mpGLView update_screen_info]; return VO_TRUE;
+		case VOCTRL_UPDATE_SCREENINFO:
+			if (shared_buffer)
+				update_screen_info_shared_buffer();
+			else
+				[mpGLView update_screen_info];
+			return VO_TRUE;
 	}
 	return VO_NOTIMPL;
 }
@@ -493,7 +495,7 @@ static int control(uint32_t request, void *data)
 	d_width  = vo_dwidth;
 	d_height = vo_dheight;
 	//set texture frame
-	if(vo_keepaspect)
+	if(aspect_scaling())
 	{
 		aspect(&d_width, &d_height, A_WINZOOM);
 	}

@@ -1561,14 +1561,14 @@ if(sh_audio && !demuxer2){
     } else
 #endif
     {
-        // PTS = (last timestamp) + (bytes after last timestamp)/(bytes per sec)
-        #ifdef CONFIG_DVDREAD
-            a_pts=d_audio->pts;
-            if(!delay_corrected) if(a_pts) delay_corrected=1;
-            a_pts+=(ds_tell_pts(d_audio)-sh_audio->a_in_buffer_len)/(float)sh_audio->i_bps;
-        #else
-            a_pts=calc_a_pts(sh_audio, d_audio);
-        #endif
+      // PTS = (last timestamp) + (bytes after last timestamp)/(bytes per sec)
+      #ifdef CONFIG_DVDREAD
+          a_pts=d_audio->pts;
+          if(!delay_corrected) if(a_pts) delay_corrected=1;
+          a_pts+=(ds_tell_pts(d_audio)-sh_audio->a_in_buffer_len)/(float)sh_audio->i_bps;
+      #else
+          a_pts=calc_a_pts(sh_audio, d_audio);
+      #endif
     }
     v_pts=sh_video ? sh_video->pts : d_video->pts;
     // av = compensated (with out buffering delay) A-V diff

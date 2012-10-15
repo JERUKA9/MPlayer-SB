@@ -1630,6 +1630,9 @@ static int decode_vol_header(MpegEncContext *s, GetBitContext *gb){
             height = get_bits(gb, 13);
             skip_bits1(gb);   /* marker */
             if(width && height && !(s->width && s->codec_tag == AV_RL32("MP4S"))){ /* they should be non zero but who knows ... */
+                if (s->width && s->height &&
+                    (s->width != width || s->height != height))
+                    s->context_reinit = 1;
                 s->width = width;
                 s->height = height;
             }
@@ -2316,8 +2319,8 @@ static const AVProfile mpeg4_video_profiles[] = {
 };
 
 static const AVOption mpeg4_options[] = {
-    {"quarter_sample", "1/4 subpel MC", offsetof(MpegEncContext, quarter_sample), FF_OPT_TYPE_INT, {.dbl = 0}, 0, 1, 0},
-    {"divx_packed", "divx style packed b frames", offsetof(MpegEncContext, divx_packed), FF_OPT_TYPE_INT, {.dbl = 0}, 0, 1, 0},
+    {"quarter_sample", "1/4 subpel MC", offsetof(MpegEncContext, quarter_sample), FF_OPT_TYPE_INT, {.i64 = 0}, 0, 1, 0},
+    {"divx_packed", "divx style packed b frames", offsetof(MpegEncContext, divx_packed), FF_OPT_TYPE_INT, {.i64 = 0}, 0, 1, 0},
     {NULL}
 };
 

@@ -1296,17 +1296,17 @@ static int preinit(const char *arg)
     mp_msg(MSGT_VO,MSGL_DBG3, "SDL: Opening Plugin\n");
 
     if(sdl_driver) {
-        putenv("SDL_VIDEODRIVER=1");
+        setenv("SDL_VIDEODRIVER", sdl_driver, 1);
     free(sdl_driver);
     }
 
     /* does the user want SDL to try and force Xv */
-    if(sdl_forcexv)	putenv("SDL_VIDEO_X11_NODIRECTCOLOR=1");
-    else putenv("SDL_VIDEO_X11_NODIRECTCOLOR=0");
+    if(sdl_forcexv)	setenv("SDL_VIDEO_X11_NODIRECTCOLOR", "1", 1);
+    else setenv("SDL_VIDEO_X11_NODIRECTCOLOR", "0", 1);
 
     /* does the user want to disable Xv and use software scaling instead */
-    if(sdl_hwaccel) putenv("SDL_VIDEO_YUV_HWACCEL=1");
-    else putenv("SDL_VIDEO_YUV_HWACCEL=0");
+    if(sdl_hwaccel) setenv("SDL_VIDEO_YUV_HWACCEL", "1", 1);
+    else setenv("SDL_VIDEO_YUV_HWACCEL", "0", 1);
 
     /* default to no fullscreen mode, we'll set this as soon we have the avail. modes */
     priv->fullmode = -2;

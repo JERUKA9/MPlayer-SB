@@ -30,6 +30,7 @@
 #include "os_support.h"
 #include "avc.h"
 #include "url.h"
+#include "isom.h"
 
 #include "libavutil/opt.h"
 #include "libavutil/avstring.h"
@@ -238,6 +239,7 @@ static int ism_write_header(AVFormatContext *s)
             goto fail;
         }
         avcodec_copy_context(st->codec, s->streams[i]->codec);
+        st->sample_aspect_ratio = s->streams[i]->sample_aspect_ratio;
 
         ctx->pb = avio_alloc_context(os->iobuf, sizeof(os->iobuf), AVIO_FLAG_WRITE, os, NULL, ism_write, ism_seek);
         if (!ctx->pb) {
@@ -617,5 +619,6 @@ AVOutputFormat ff_smoothstreaming_muxer = {
     .write_header   = ism_write_header,
     .write_packet   = ism_write_packet,
     .write_trailer  = ism_write_trailer,
+    .codec_tag      = (const AVCodecTag* const []){ ff_mp4_obj_type, 0 },
     .priv_class     = &ism_class,
 };

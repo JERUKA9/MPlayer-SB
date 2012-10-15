@@ -221,21 +221,6 @@ SRCS_COMMON-$(REAL_CODECS)           += libmpcodecs/ad_realaud.c \
 SRCS_COMMON-$(SPEEX)                 += libmpcodecs/ad_speex.c
 SRCS_COMMON-$(STREAM_CACHE)          += stream/cache2.c
 
-SRCS_COMMON-$(TREMOR_INTERNAL)       += tremor/bitwise.c \
-                                        tremor/block.c \
-                                        tremor/codebook.c \
-                                        tremor/floor0.c \
-                                        tremor/floor1.c \
-                                        tremor/framing.c \
-                                        tremor/info.c \
-                                        tremor/mapping0.c \
-                                        tremor/mdct.c \
-                                        tremor/registry.c \
-                                        tremor/res012.c \
-                                        tremor/sharedbook.c \
-                                        tremor/synthesis.c \
-                                        tremor/window.c \
-
 SRCS_COMMON-$(TV)                    += stream/stream_tv.c stream/tv.c \
                                         stream/frequencies.c stream/tvi_dummy.c
 SRCS_COMMON-$(TV_BSDBT848)           += stream/tvi_bsdbt848.c
@@ -876,7 +861,7 @@ osdep/mplayer-rc.o: osdep/mplayer.exe.manifest
 
 gui/%: CFLAGS += -Wno-strict-prototypes
 
-libdvdcss/%:   CFLAGS := -Ilibdvdcss -D_GNU_SOURCE -DVERSION=\"1.2.10\" $(CFLAGS_LIBDVDCSS) $(CFLAGS)
+libdvdcss/%:   CFLAGS := -Ilibdvdcss -D_GNU_SOURCE -DVERSION=\"1.2.11\" $(CFLAGS_LIBDVDCSS) $(CFLAGS)
 libdvdnav/%:   CFLAGS := -Ilibdvdnav -D_GNU_SOURCE -DHAVE_CONFIG_H -DVERSION=\"MPlayer-custom\" $(CFLAGS)
 libdvdread4/%: CFLAGS := -Ilibdvdread4 -D_GNU_SOURCE $(CFLAGS_LIBDVDCSS_DVDREAD) $(CFLAGS)
 
