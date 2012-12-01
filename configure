@@ -449,7 +449,6 @@ Codecs:
   --disable-twolame         disable Twolame (MPEG layer 2) encoding [autodetect]
   --enable-xmms             enable XMMS input plugin support [disabled]
   --enable-libdca           enable libdca support [autodetect]
-  --disable-mp3lib          disable builtin mp3lib [autodetect]
   --disable-liba52          disable liba52 [autodetect]
   --disable-libmpeg2        disable libmpeg2 [autodetect]
   --disable-libmpeg2-internal disable builtin libmpeg2 [autodetect]
@@ -759,7 +758,6 @@ _speex=auto
 _libgsm=auto
 _theora=auto
 _mpg123=auto
-_mp3lib=auto
 _liba52=auto
 _libdca=auto
 _libmpeg2=auto
@@ -1161,8 +1159,6 @@ for ac_option do
   --disable-theora)     _theora=no      ;;
   --enable-mpg123)      _mpg123=yes     ;;
   --disable-mpg123)     _mpg123=no      ;;
-  --enable-mp3lib)      _mp3lib=yes     ;;
-  --disable-mp3lib)     _mp3lib=no      ;;
   --enable-liba52)      _liba52=yes     ;;
   --disable-liba52)     _liba52=no      ;;
   --enable-libdca)      _libdca=yes     ;;
@@ -1506,144 +1502,6 @@ test -z "$_mandir"  && _mandir="$_prefix/share/man"
 test -z "$_confdir" && _confdir="$_prefix/etc/mplayer"
 test -z "$_libdir"  && _libdir="$_prefix/lib"
 
-# Determine our OS name and CPU architecture
-if test -z "$_target" ; then
-  # OS name
-  system_name=$(uname -s 2>&1)
-  case "$system_name" in
-  Linux|FreeBSD|NetBSD|OpenBSD|DragonFly|BSD/OS|Darwin|SunOS|QNX|GNU|MorphOS|AIX|AmigaOS|Haiku)
-    ;;
-  IRIX*)
-    system_name=IRIX
-    ;;
-  GNU/kFreeBSD)
-    system_name=FreeBSD
-    ;;
-  HP-UX*)
-    system_name=HP-UX
-    ;;
-  [cC][yY][gG][wW][iI][nN]*)
-    system_name=CYGWIN
-    ;;
-  MINGW32*)
-    system_name=MINGW32
-    ;;
-  OS/2*)
-    system_name=OS/2
-    ;;
-  *)
-    system_name="$system_name-UNKNOWN"
-    ;;
-  esac
-
-
-  # host's CPU/instruction set
-  case "$(uname -m 2>&1)" in
-      x86_64|amd64|i[3-9]86*|i86pc|x86|x86pc|k5|k6|k6_2|k6_3|k6-2|k6-3|pentium*|athlon*|i586_i686|i586-i686) host_arch=i386 ;;
-      ia64) host_arch=ia64 ;;
-      macppc|ppc*|Power*) host_arch=ppc ;;
-      alpha) host_arch=alpha ;;
-      sun4*|sparc*) host_arch=sparc ;;
-      parisc*|hppa*|9000*) host_arch=hppa ;;
-      arm*|zaurus|cats) host_arch=arm ;;
-      sh3|sh4|sh4a) host_arch=sh ;;
-      s390) host_arch=s390 ;;
-      s390x) host_arch=s390x ;;
-      *mips*) host_arch=mips ;;
-      vax) host_arch=vax ;;
-      xtensa*) host_arch=xtensa ;;
-      *) host_arch=UNKNOWN ;;
-  esac
-else # if test -z "$_target"
-  for component in 3 2; do
-    system_name=$(echo $_target | cut -d '-' -f $component)
-    case "$(echo $system_name | tr A-Z a-z)" in
-      linux) system_name=Linux ;;
-      freebsd) system_name=FreeBSD ;;
-      gnu/kfreebsd) system_name=FreeBSD ;;
-      netbsd) system_name=NetBSD ;;
-      bsd/os) system_name=BSD/OS ;;
-      openbsd) system_name=OpenBSD ;;
-      dragonfly) system_name=DragonFly ;;
-      sunos) system_name=SunOS ;;
-      qnx) system_name=QNX ;;
-      morphos) system_name=MorphOS ;;
-      amigaos) system_name=AmigaOS ;;
-      mingw32*) system_name=MINGW32 ;;
-      wine) system_name=Wine ;;
-    esac
-  done
-  # We need to convert underscores so that values like k6-2 and pentium-mmx can be passed
-  host_arch=$(echo $_target | cut -d '-' -f 1)
-  if test $(echo $host_arch) != "x86_64" ; then
-    host_arch=$(echo $host_arch | tr '_' '-')
-  fi
-fi
-
-extra_cflags="-I. -Iffmpeg $extra_cflags"
-_timer=timer-linux.c
-_getch=getch2.c
-
-if darwin; then
-  extra_cflags="-mdynamic-no-pic $extra_cflags"
-  if test "$(basename $_cc)" != "clang" ; then
-    extra_cflags="-falign-loops=16 -shared-libgcc $extra_cflags"
-  fi
-  _timer=timer-darwin.c
-fi
-
-if aix ; then
-  extra_ldflags="$extra_ldflags -lC"
-fi
-
-if irix ; then
-  _ranlib='ar -r'
-elif linux ; then
-  _ranlib='true'
-fi
-
-if win32 ; then
-  _exesuf=".exe"
-  extra_cflags="$extra_cflags -fno-common"
-  # -lwinmm is always needed for osdep/timer-win2.c
-  extra_ldflags="$extra_ldflags -lwinmm"
-  _pe_executable=yes
-  _timer=timer-win2.c
-  _priority=yes
-  def_dos_paths="#define HAVE_DOS_PATHS 1"
-  def_priority="#define CONFIG_PRIORITY 1"
-fi
-
-if mingw32 ; then
-  _getch=getch2-win.c
-  shmem=yes
-fi
-
-if amigaos ; then
-  _select=no
-  _sighandler=no
-  _stream_cache=no
-  def_stream_cache="#undef CONFIG_STREAM_CACHE"
-  extra_cflags="-DNEWLIB -D__USE_INLINE__ $extra_cflags"
-fi
-
-if qnx ; then
-  extra_ldflags="$extra_ldflags -lph"
-fi
-
-if os2 ; then
-  _exesuf=".exe"
-  _getch=getch2-os2.c
-  shmem=yes
-  _priority=yes
-  def_dos_paths="#define HAVE_DOS_PATHS 1"
-  def_priority="#define CONFIG_PRIORITY 1"
-fi
-
-if wine ; then
-  extra_cflags="-fno-pic -UWIN32 -U_WIN32 -U__WIN32 -U__WIN32__ -DWINE_NOWINSOCK -Dstricmp=strcasecmp $extra_cflags"
-fi
-
 for tmpdir in "$TMPDIR" "$TEMPDIR" "/tmp" ; do
   test "$tmpdir" && break
 done
@@ -1654,18 +1512,14 @@ mkdir $mplayer_tmpdir || die "Unable to create tmpdir."
 TMPLOG="config.log"
 TMPC="$mplayer_tmpdir/tmp.c"
 TMPCPP="$mplayer_tmpdir/tmp.cpp"
-TMPEXE="$mplayer_tmpdir/tmp$_exesuf"
 TMPH="$mplayer_tmpdir/tmp.h"
 TMPS="$mplayer_tmpdir/tmp.S"
+# We will update this later once we know the executable suffix
+TMPEXE="$mplayer_tmpdir/tmp"
 
 rm -f "$TMPLOG"
 echo configuration: $configuration > "$TMPLOG"
 echo >> "$TMPLOG"
-
-
-if test "$_runtime_cpudetection" = yes && ! x86 && ! ppc; then
-  die "Runtime CPU detection only works for x86, x86-64 and PPC!"
-fi
 
 
 # Checking CC version...
@@ -1734,6 +1588,148 @@ else
 fi # icc
 test "$cc_fail" = yes && die "unsupported compiler version"
 
+# Determine our OS name and CPU architecture
+if test -z "$_target" ; then
+  # OS name
+  system_name=$(uname -s 2>&1)
+  case "$system_name" in
+  Linux|FreeBSD|NetBSD|OpenBSD|DragonFly|BSD/OS|Darwin|SunOS|QNX|GNU|MorphOS|AIX|AmigaOS|Haiku)
+    ;;
+  IRIX*)
+    system_name=IRIX
+    ;;
+  GNU/kFreeBSD)
+    system_name=FreeBSD
+    ;;
+  HP-UX*)
+    system_name=HP-UX
+    ;;
+  [cC][yY][gG][wW][iI][nN]*)
+    system_name=CYGWIN
+    ;;
+  MINGW32*)
+    system_name=MINGW32
+    ;;
+  OS/2*)
+    system_name=OS/2
+    ;;
+  *)
+    system_name="$system_name-UNKNOWN"
+    ;;
+  esac
+  cpp_condition_check '' 'defined(__MINGW32__)' && system_name=MINGW32
+
+
+  # host's CPU/instruction set
+  case "$(uname -m 2>&1)" in
+      x86_64|amd64|i[3-9]86*|i86pc|x86|x86pc|k5|k6|k6_2|k6_3|k6-2|k6-3|pentium*|athlon*|i586_i686|i586-i686) host_arch=i386 ;;
+      ia64) host_arch=ia64 ;;
+      macppc|ppc*|Power*) host_arch=ppc ;;
+      alpha) host_arch=alpha ;;
+      sun4*|sparc*) host_arch=sparc ;;
+      parisc*|hppa*|9000*) host_arch=hppa ;;
+      arm*|zaurus|cats) host_arch=arm ;;
+      sh3|sh4|sh4a) host_arch=sh ;;
+      s390) host_arch=s390 ;;
+      s390x) host_arch=s390x ;;
+      *mips*) host_arch=mips ;;
+      vax) host_arch=vax ;;
+      xtensa*) host_arch=xtensa ;;
+      *) host_arch=UNKNOWN ;;
+  esac
+else # if test -z "$_target"
+  for component in 3 2; do
+    system_name=$(echo $_target | cut -d '-' -f $component)
+    case "$(echo $system_name | tr A-Z a-z)" in
+      linux) system_name=Linux ;;
+      freebsd) system_name=FreeBSD ;;
+      gnu/kfreebsd) system_name=FreeBSD ;;
+      netbsd) system_name=NetBSD ;;
+      bsd/os) system_name=BSD/OS ;;
+      openbsd) system_name=OpenBSD ;;
+      dragonfly) system_name=DragonFly ;;
+      sunos) system_name=SunOS ;;
+      qnx) system_name=QNX ;;
+      morphos) system_name=MorphOS ;;
+      amigaos) system_name=AmigaOS ;;
+      mingw32*) system_name=MINGW32 ;;
+      wine) system_name=Wine ;;
+    esac
+  done
+  # We need to convert underscores so that values like k6-2 and pentium-mmx can be passed
+  host_arch=$(echo $_target | cut -d '-' -f 1)
+  if test $(echo $host_arch) != "x86_64" ; then
+    host_arch=$(echo $host_arch | tr '_' '-')
+  fi
+fi
+
+extra_cflags="-I. -Iffmpeg $extra_cflags"
+_timer=timer-linux.c
+_getch=getch2.c
+
+if darwin; then
+  extra_cflags="-mdynamic-no-pic $extra_cflags"
+  _timer=timer-darwin.c
+fi
+
+if aix ; then
+  extra_ldflags="$extra_ldflags -lC"
+fi
+
+if irix ; then
+  _ranlib='ar -r'
+elif linux ; then
+  _ranlib='true'
+fi
+
+if win32 ; then
+  _exesuf=".exe"
+  extra_cflags="$extra_cflags -fno-common"
+  # -lwinmm is always needed for osdep/timer-win2.c
+  extra_ldflags="$extra_ldflags -lwinmm"
+  _pe_executable=yes
+  _timer=timer-win2.c
+  _priority=yes
+  def_dos_paths="#define HAVE_DOS_PATHS 1"
+  def_priority="#define CONFIG_PRIORITY 1"
+fi
+
+if mingw32 ; then
+  _getch=getch2-win.c
+  shmem=yes
+fi
+
+if amigaos ; then
+  _select=no
+  _sighandler=no
+  _stream_cache=no
+  def_stream_cache="#undef CONFIG_STREAM_CACHE"
+  extra_cflags="-DNEWLIB -D__USE_INLINE__ $extra_cflags"
+fi
+
+if qnx ; then
+  extra_ldflags="$extra_ldflags -lph"
+fi
+
+if os2 ; then
+  _exesuf=".exe"
+  _getch=getch2-os2.c
+  shmem=yes
+  _priority=yes
+  def_dos_paths="#define HAVE_DOS_PATHS 1"
+  def_priority="#define CONFIG_PRIORITY 1"
+fi
+
+if wine ; then
+  extra_cflags="-fno-pic -UWIN32 -U_WIN32 -U__WIN32 -U__WIN32__ -DWINE_NOWINSOCK -Dstricmp=strcasecmp $extra_cflags"
+fi
+
+if darwin && test "$cc_vendor" != "clang" ; then
+  extra_cflags="-falign-loops=16 -shared-libgcc $extra_cflags"
+fi
+
+TMPEXE="$mplayer_tmpdir/tmp$_exesuf"
+
 echocheck "working compiler"
 cflag_check "" || die "Compiler is not functioning correctly. Check your installation and custom CFLAGS $CFLAGS ."
 echo "yes"
@@ -1758,6 +1754,10 @@ fi
 
 echo "Detected operating system: $system_name"
 echo "Detected host architecture: $host_arch"
+
+if test "$_runtime_cpudetection" = yes && ! x86 && ! ppc; then
+  die "Runtime CPU detection only works for x86, x86-64 and PPC!"
+fi
 
 echocheck "cross compilation"
 if test $_cross_compile = auto ; then
@@ -1815,7 +1815,7 @@ elif aix; then
 elif x86; then
   # all other OSes try to extract CPU information from a small helper
   # program cpuinfo instead
-  $_cc -o cpuinfo$_exesuf cpuinfo.c
+  $_host_cc -o cpuinfo$_exesuf cpuinfo.c
   _cpuinfo="./cpuinfo$_exesuf"
 fi
 
@@ -1981,7 +1981,9 @@ case "$host_arch" in
         fi
         ;;
     6) iproc=686
-        if test "$pmodel" -ge 15; then
+        if test "$pmodel" -eq 28 -o "$pmodel" -eq 38 -o "$pmodel" -eq 54; then
+            proc=atom
+        elif test "$pmodel" -ge 15; then
             proc=core2
         elif test "$pmodel" -eq 9 -o "$pmodel" -ge 13; then
             proc=pentium-m
@@ -2080,6 +2082,9 @@ case "$host_arch" in
           proc=i586
         fi
       fi
+    fi
+    if test "$proc" = "atom" ; then
+      cflag_check -march=$proc $cpuopt=$proc || proc=core2
     fi
     if test "$proc" = "prescott" ; then
       cflag_check -march=$proc $cpuopt=$proc || proc=pentium4
@@ -2192,7 +2197,17 @@ case "$host_arch" in
         ;;
       GenuineIntel)
         case "$pfamily" in
-        6) proc=core2;;
+        6)
+          if test "$pmodel" -eq 28 -o "$pmodel" -eq 38 -o "$pmodel" -eq 54; then
+            proc=atom
+          elif test "$pmodel" -ge 42; then
+            proc=corei7-avx
+          elif test "$pmodel" -ge 26; then
+            proc=corei7
+          else
+            proc=core2
+          fi
+          ;;
         *)
           # 64-bit prescotts exist, but as far as GCC is concerned they
           # have the same capabilities as a nocona.
@@ -2227,6 +2242,9 @@ case "$host_arch" in
         cflag_check -march=$proc $cpuopt=$proc || proc=error
       fi
       # --- Intel processors ---
+      if test "$proc" = "atom" || test "$proc" = "corei7-avx" || test "$proc" = "corei7"; then
+        cflag_check -march=$proc $cpuopt=$proc || proc=core2
+      fi
       if test "$proc" = "core2"; then
         cflag_check -march=$proc $cpuopt=$proc || proc=x86-64
       fi
@@ -3270,10 +3288,24 @@ fi
 echores "$_kstat"
 
 
-for func in cbrtf exp2 exp2f isnan isinf llrint llrintf log2 log2f lrint lrintf rint round roundf trunc truncf; do
+for func in atanf cbrtf cosf expf exp2 exp2f isnan isinf llrint llrintf log2 log2f log10f lrint lrintf rint round roundf sinf trunc truncf; do
 echocheck $func
 eval _$func=no
 statement_check math.h "${func}(2.0)" -D_ISOC99_SOURCE && eval _$func=yes
+if eval test "x\$_$func" = "xyes"; then
+  eval def_$func="\"#define HAVE_$(echo $func | tr '[a-z]' '[A-Z]') 1\""
+  echores yes
+else
+  eval def_$func="\"#define HAVE_$(echo $func | tr '[a-z]' '[A-Z]') 0\""
+  echores no
+fi
+done
+
+
+for func in atan2f ldexpf powf; do
+echocheck $func
+eval _$func=no
+statement_check math.h "${func}(1.0,1.0)" -D_ISOC99_SOURCE && eval _$func=yes
 if eval test "x\$_$func" = "xyes"; then
   eval def_$func="\"#define HAVE_$(echo $func | tr '[a-z]' '[A-Z]') 1\""
   echores yes
@@ -3798,6 +3830,24 @@ if test "$_w32threads" = auto ; then
 fi
 test "$_w32threads" = yes && def_threads='#define HAVE_THREADS 1' && def_w32threads='#define HAVE_W32THREADS 1'
 echores "$_w32threads"
+echocheck "direct.h"
+_direct_h=no
+header_check direct.h && _direct_h=yes
+if [ $_direct_h = yes ]; then
+  def_direct_h='#define HAVE_DIRECT_H 1'
+else
+  def_direct_h='#define HAVE_DIRECT_H 0'
+fi
+echores "$_direct_h"
+echocheck "io.h"
+_io_h=no
+header_check io.h && _io_h=yes
+if [ $_io_h = yes ]; then
+  def_io_h='#define HAVE_IO_H 1'
+else
+  def_io_h='#define HAVE_IO_H 0'
+fi
+echores "$_io_h"
 fi #if win32; then
 
 
@@ -6379,7 +6429,7 @@ echores "$_toolame"
 echocheck "OggVorbis support"
 if test "$_tremor" = auto; then
   _tremor=no
-  statement_check tremor/ivorbiscodec.h 'vorbis_packet_blocksize(0, 0)' -logg -lvorbisidec && _tremor=yes && _libvorbis=no
+  statement_check tremor/ivorbiscodec.h 'vorbis_synthesis(0, 0)' -logg -lvorbisidec && _tremor=yes && _libvorbis=no
 fi
 if test "$_libvorbis" = auto; then
   _libvorbis=no
@@ -6469,19 +6519,6 @@ else
   nocodecmodules="libtheora $nocodecmodules"
 fi
 echores "$_theora"
-
-echocheck "mp3lib support"
-if test "$_mp3lib" = auto ; then
-  test "$cc_vendor" = intel && test "$_cc_major" -le 10 -o "$_cc_major" -eq 11 -a "$_cc_minor" -eq 0 && _mp3lib=no || _mp3lib=yes
-fi
-if test "$_mp3lib" = yes ; then
-  def_mp3lib='#define CONFIG_MP3LIB 1'
-  codecmodules="mp3lib(internal) $codecmodules"
-else
-  def_mp3lib='#undef CONFIG_MP3LIB'
-  nocodecmodules="mp3lib(internal) $nocodecmodules"
-fi
-echores "$_mp3lib"
 
 # Any version of libmpg123 that knows MPG123_RESYNC_LIMIT shall be fine.
 # That is, 1.2.0 onwards. Recommened is 1.14 onwards, though.
@@ -7091,7 +7128,7 @@ if test "$_mencoder" = yes && test "$_xvid" = yes && test "$_xvid_lavc" = auto ;
 fi
 if test "$_xvid_lavc" = yes ; then
   def_xvid_lavc='#define CONFIG_LIBXVID 1'
-  libavencoders="$libavencoders LIBXVID LIBXVID_ENCODER"
+  libavencoders="$libavencoders LIBXVID_ENCODER"
 else
   _xvid_lavc=no
   def_xvid_lavc='#define CONFIG_LIBXVID 0'
@@ -7815,6 +7852,22 @@ else
   echores "no"
 fi
 
+echocheck "linker support for --large-address-aware"
+if cflag_check "-Wl,--large-address-aware" ; then
+  extra_ldflags="-Wl,--large-address-aware $extra_ldflags"
+  echores "yes"
+else
+  echores "no"
+fi
+
+echocheck "linker support for --version-script"
+if cflag_check "-Wl,--version-script,binary.ver" ; then
+  extra_ldflags="-Wl,--version-script,binary.ver $extra_ldflags"
+  echores "yes"
+else
+  echores "no"
+fi
+
 
 # Dynamic linking flags
 # (FIXME: 'echocheck "dynamic linking"' above and modify here accordingly)
@@ -7911,8 +7964,8 @@ done
 libs_mplayer=$ld_tmp
 
 if mingw32 ; then
- libs_mplayer="$libs_mplayer osdep/alloc-win.c"
- libs_mencoder="$libs_mencoder osdep/alloc-win.c"
+  libs_mplayer="$libs_mplayer osdep/alloc-win.c"
+  libs_mencoder="$libs_mencoder osdep/alloc-win.c"
 fi
 
 #############################################################################
@@ -8152,6 +8205,8 @@ nprefix=$3;
 for part in $list; do
   if $(echo $item | grep -q -E "(^| )$part($| )"); then
     echo "${nprefix}_$part = yes"
+  else
+    echo "${nprefix}_$part = no"
   fi
 done
 }
@@ -8315,7 +8370,6 @@ MD5SUM = $_md5sum
 MGA = $_mga
 MNG = $_mng
 MP3LAME = $_mp3lame
-MP3LIB = $_mp3lib
 MPG123 = $_mpg123
 MUSEPACK = $_musepack
 NAS = $_nas
@@ -8426,6 +8480,13 @@ YASM       = $_yasm
 DEPYASM    = $_yasm
 YASMFLAGS  = $YASMFLAGS
 
+CONFIG_FFPROBE       = no
+CONFIG_LAVFI_INDEV   = no
+CONFIG_AMOVIE_FILTER = no
+CONFIG_MOVIE_FILTER  = no
+CONFIG_SCALE_FILTER  = no
+CONFIG_SELECT_FILTER = no
+
 CONFIG_STATIC = yes
 SRC_PATH      = .
 LIBPREF       = lib
@@ -8452,6 +8513,7 @@ CONFIG_H264QPEL= yes
 CONFIG_HUFFMAN = yes
 CONFIG_LPC     = yes
 CONFIG_LSP     = yes
+CONFIG_LZO     = yes
 CONFIG_MDCT    = yes
 CONFIG_MPEGAUDIODSP = yes
 CONFIG_MPEGVIDEO    = yes
@@ -8489,15 +8551,16 @@ HAVE_SHM        = $_shm
 HAVE_W32THREADS = $_w32threads
 HAVE_YASM       = $have_yasm
 
-$(echo $libavdecoders  | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
-$(echo $libavencoders  | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
-$(echo $libavparsers   | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
-$(echo $libavdemuxers  | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
-$(echo $libavmuxers    | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
-$(echo $libavprotocols | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
-$(echo $libavbsfs      | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
-$(echo $libavhwaccels  | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
-$(echo $libavfilters   | tr '[a-z] ' '[A-Z]\n' | sed 's/^/CONFIG_/;s/$/=yes/')
+CONFIG_LIBXVID = $_xvid_lavc
+$(mak_enable "$libavdecoders_all"  "$libavdecoders"  CONFIG)
+$(mak_enable "$libavencoders_all"  "$libavencoders"  CONFIG)
+$(mak_enable "$libavparsers_all"   "$libavparsers"   CONFIG)
+$(mak_enable "$libavdemuxers_all"  "$libavdemuxers"  CONFIG)
+$(mak_enable "$libavmuxers_all"    "$libavmuxers"    CONFIG)
+$(mak_enable "$libavprotocols_all" "$libavprotocols" CONFIG)
+$(mak_enable "$libavbsfs_all"      "$libavbsfs"      CONFIG)
+$(mak_enable "$libavhwaccels_all"  "$libavhwaccels"  CONFIG)
+$(mak_enable "$libavfilters_all"   "$libavfilters"   CONFIG)
 EOF
 
 #############################################################################
@@ -8700,7 +8763,6 @@ $def_mad
 $def_mp3lame
 $def_mp3lame_preset
 $def_mp3lame_preset_medium
-$def_mp3lib
 $def_mpg123
 $def_musepack
 $def_speex
@@ -8906,7 +8968,11 @@ $def_arpa_inet_h
 $def_bswap
 $def_bzlib
 $def_dcbzl
+$def_atanf
+$def_atan2f
 $def_cbrtf
+$def_cosf
+$def_expf
 $def_exp2
 $def_exp2f
 $def_fast_64bit
@@ -8916,6 +8982,7 @@ $def_hardcoded_tables
 $def_ibm_asm
 $def_isinf
 $def_isnan
+$def_ldexpf
 $def_libavcodec_mpegaudio_hp
 $def_llrint
 $def_llrintf
@@ -8923,6 +8990,7 @@ $def_local_aligned_8
 $def_local_aligned_16
 $def_log2
 $def_log2f
+$def_log10f
 $def_lrint
 $def_lrintf
 $def_mlib
@@ -8933,10 +9001,12 @@ $def_os2threads
 $def_pic
 $def_poll_h
 $def_posix_memalign
+$def_powf
 $def_pthreads
 $def_rint
 $def_round
 $def_roundf
+$def_sinf
 $def_threads
 $def_trunc
 $def_truncf
@@ -9001,6 +9071,7 @@ $def_yasm
 #define CONFIG_H264QPEL 1
 #define CONFIG_HUFFMAN 1
 #define CONFIG_LPC 1
+#define CONFIG_LZO 1
 #define CONFIG_MDCT 1
 #define CONFIG_RDFT 1
 
@@ -9030,6 +9101,8 @@ $def_libschroedinger_lavc
 $def_mp3lame_lavc
 $def_x264_lavc
 $def_xvid_lavc
+$def_direct_h
+$def_io_h
 
 $(ff_config_enable "$libavdecoders_all"  "$libavdecoders" "#")
 $(ff_config_enable "$libavencoders_all"  "$libavencoders" "#")

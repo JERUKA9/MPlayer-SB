@@ -161,14 +161,14 @@ static av_cold void uninit(AVFilterContext *ctx)
 
 static int query_formats(AVFilterContext *ctx)
 {
-    static const enum PixelFormat pix_fmts[] = {
-        PIX_FMT_YUV444P,      PIX_FMT_YUV422P,
-        PIX_FMT_YUV420P,      PIX_FMT_YUV411P,
-        PIX_FMT_YUV410P,      PIX_FMT_YUV440P,
-        PIX_FMT_YUVJ444P,     PIX_FMT_YUVJ422P,
-        PIX_FMT_YUVJ420P,     PIX_FMT_YUVJ440P,
-        PIX_FMT_YUVA420P,
-        PIX_FMT_NONE
+    static const enum AVPixelFormat pix_fmts[] = {
+        AV_PIX_FMT_YUV444P,      AV_PIX_FMT_YUV422P,
+        AV_PIX_FMT_YUV420P,      AV_PIX_FMT_YUV411P,
+        AV_PIX_FMT_YUV410P,      AV_PIX_FMT_YUV440P,
+        AV_PIX_FMT_YUVJ444P,     AV_PIX_FMT_YUVJ422P,
+        AV_PIX_FMT_YUVJ420P,     AV_PIX_FMT_YUVJ440P,
+        AV_PIX_FMT_YUVA420P,
+        AV_PIX_FMT_NONE
     };
 
     ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
@@ -180,7 +180,7 @@ static int config_input(AVFilterLink *inlink)
 {
     AVFilterContext *ctx = inlink->dst;
     DecimateContext *decimate = ctx->priv;
-    const AVPixFmtDescriptor *pix_desc = &av_pix_fmt_descriptors[inlink->format];
+    const AVPixFmtDescriptor *pix_desc = av_pix_fmt_desc_get(inlink->format);
     decimate->hsub = pix_desc->log2_chroma_w;
     decimate->vsub = pix_desc->log2_chroma_h;
 
@@ -235,6 +235,29 @@ static int request_frame(AVFilterLink *outlink)
     return ret;
 }
 
+static const AVFilterPad decimate_inputs[] = {
+    {
+        .name             = "default",
+        .type             = AVMEDIA_TYPE_VIDEO,
+        .get_video_buffer = ff_null_get_video_buffer,
+        .config_props     = config_input,
+        .start_frame      = start_frame,
+        .draw_slice       = draw_slice,
+        .end_frame        = end_frame,
+        .min_perms        = AV_PERM_READ | AV_PERM_PRESERVE,
+    },
+    { NULL }
+};
+
+static const AVFilterPad decimate_outputs[] = {
+    {
+        .name          = "default",
+        .type          = AVMEDIA_TYPE_VIDEO,
+        .request_frame = request_frame,
+    },
+    { NULL }
+};
+
 AVFilter avfilter_vf_decimate = {
     .name        = "decimate",
     .description = NULL_IF_CONFIG_SMALL("Remove near-duplicate frames."),
@@ -243,26 +266,6 @@ AVFilter avfilter_vf_decimate = {
 
     .priv_size = sizeof(DecimateContext),
     .query_formats = query_formats,
-
-    .inputs = (const AVFilterPad[]) {
-        {
-            .name             = "default",
-            .type             = AVMEDIA_TYPE_VIDEO,
-            .get_video_buffer = ff_null_get_video_buffer,
-            .config_props     = config_input,
-            .start_frame      = start_frame,
-            .draw_slice       = draw_slice,
-            .end_frame        = end_frame,
-            .min_perms        = AV_PERM_READ | AV_PERM_PRESERVE,
-        },
-        { .name = NULL }
-    },
-    .outputs = (const AVFilterPad[]) {
-        {
-            .name          = "default",
-            .type          = AVMEDIA_TYPE_VIDEO,
-            .request_frame = request_frame,
-        },
-        { .name = NULL }
-    },
+    .inputs        = decimate_inputs,
+    .outputs       = decimate_outputs,
 };

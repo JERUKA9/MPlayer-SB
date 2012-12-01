@@ -61,6 +61,7 @@ typedef struct {
 #endif
     int start_number;
     int start_number_range;
+    int frame_size;
 } VideoDemuxData;
 
 static const int sizes[][2] = {
@@ -179,6 +180,8 @@ static int read_probe(AVProbeData *p)
             return AVPROBE_SCORE_MAX;
         else if (is_glob(p->filename))
             return AVPROBE_SCORE_MAX;
+        else if(av_match_ext(p->filename, "raw"))
+            return 5;
         else
             return AVPROBE_SCORE_MAX/2;
     }
@@ -191,7 +194,7 @@ static int read_header(AVFormatContext *s1)
     int first_index, last_index, ret = 0;
     int width = 0, height = 0;
     AVStream *st;
-    enum PixelFormat pix_fmt = PIX_FMT_NONE;
+    enum AVPixelFormat pix_fmt = AV_PIX_FMT_NONE;
     AVRational framerate;
 
     s1->ctx_flags |= AVFMTCTX_NOHEADER;
@@ -201,7 +204,7 @@ static int read_header(AVFormatContext *s1)
         return AVERROR(ENOMEM);
     }
 
-    if (s->pixel_format && (pix_fmt = av_get_pix_fmt(s->pixel_format)) == PIX_FMT_NONE) {
+    if (s->pixel_format && (pix_fmt = av_get_pix_fmt(s->pixel_format)) == AV_PIX_FMT_NONE) {
         av_log(s1, AV_LOG_ERROR, "No such pixel format: %s.\n", s->pixel_format);
         return AVERROR(EINVAL);
     }
@@ -317,7 +320,7 @@ static int read_header(AVFormatContext *s1)
         if (st->codec->codec_id == AV_CODEC_ID_LJPEG)
             st->codec->codec_id = AV_CODEC_ID_MJPEG;
     }
-    if(st->codec->codec_type == AVMEDIA_TYPE_VIDEO && pix_fmt != PIX_FMT_NONE)
+    if(st->codec->codec_type == AVMEDIA_TYPE_VIDEO && pix_fmt != AV_PIX_FMT_NONE)
         st->codec->pix_fmt = pix_fmt;
 
     return 0;
@@ -370,10 +373,15 @@ static int read_packet(AVFormatContext *s1, AVPacket *pkt)
         f[0] = s1->pb;
         if (url_feof(f[0]))
             return AVERROR(EIO);
-        size[0]= 4096;
+        if (s->frame_size > 0) {
+            size[0] = s->frame_size;
+        } else {
+            size[0]= 4096;
+        }
     }
 
-    av_new_packet(pkt, size[0] + size[1] + size[2]);
+    if (av_new_packet(pkt, size[0] + size[1] + size[2]) < 0)
+        return AVERROR(ENOMEM);
     pkt->stream_index = 0;
     pkt->flags |= AV_PKT_FLAG_KEY;
 
@@ -424,6 +432,7 @@ static const AVOption options[] = {
     { "start_number", "set first number in the sequence",    OFFSET(start_number), AV_OPT_TYPE_INT,    {.i64 = 0},    0, INT_MAX, DEC },
     { "start_number_range", "set range for looking at the first sequence number", OFFSET(start_number_range), AV_OPT_TYPE_INT, {.i64 = 5}, 1, INT_MAX, DEC },
     { "video_size",   "set video size",                      OFFSET(video_size),   AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC },
+    { "frame_size",   "force frame size in bytes",           OFFSET(frame_size),   AV_OPT_TYPE_INT,    {.i64 = 0},    0, INT_MAX, DEC },
     { NULL },
 };
 

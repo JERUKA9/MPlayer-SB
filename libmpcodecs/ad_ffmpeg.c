@@ -150,12 +150,12 @@ static int init(sh_audio_t *sh_audio)
    if(sh_audio->format==0x3343414D){
        // MACE 3:1
        sh_audio->ds->ss_div = 2*3; // 1 samples/packet
-       sh_audio->ds->ss_mul = 2*sh_audio->wf->nChannels; // 1 byte*ch/packet
+       sh_audio->ds->ss_mul = sh_audio->wf ? 2*sh_audio->wf->nChannels : 2; // 1 byte*ch/packet
    } else
    if(sh_audio->format==0x3643414D){
        // MACE 6:1
        sh_audio->ds->ss_div = 2*6; // 1 samples/packet
-       sh_audio->ds->ss_mul = 2*sh_audio->wf->nChannels; // 1 byte*ch/packet
+       sh_audio->ds->ss_mul = sh_audio->wf ? 2*sh_audio->wf->nChannels : 2; // 1 byte*ch/packet
    }
 
    // Decode at least 1 byte:  (to get header filled)
@@ -202,13 +202,13 @@ static int control(sh_audio_t *sh,int cmd,void* arg, ...)
     return CONTROL_UNKNOWN;
 }
 
-static av_always_inline void copy_samples_planar(unsigned bps,
-                                                 unsigned nb_samples,
-                                                 unsigned nb_channels,
+static av_always_inline void copy_samples_planar(size_t bps,
+                                                 size_t nb_samples,
+                                                 size_t nb_channels,
                                                  unsigned char *dst,
                                                  unsigned char **src)
 {
-    unsigned s, c, o = 0;
+    size_t s, c, o = 0;
 
     for (s = 0; s < nb_samples; s++) {
         for (c = 0; c < nb_channels; c++) {
@@ -245,6 +245,7 @@ static int copy_samples(AVCodecContext *avc, AVFrame *frame,
         case 4:
             copy_samples_planar(4, frame->nb_samples, channels,
                                 buf, frame->extended_data);
+            break;
         default:
             copy_samples_planar(sample_size, frame->nb_samples, channels,
                                 buf, frame->extended_data);

@@ -67,7 +67,7 @@ static av_cold int mp_decode_init(AVCodecContext *avctx)
     mp->offset_bits_len = av_log2(avctx->width * avctx->height) + 1;
     mp->vpt = av_mallocz(avctx->height * sizeof(YuvPixel));
     mp->hpt = av_mallocz(h4 * w4 / 16 * sizeof(YuvPixel));
-    avctx->pix_fmt = PIX_FMT_RGB555;
+    avctx->pix_fmt = AV_PIX_FMT_RGB555;
     avcodec_get_frame_defaults(&mp->frame);
     return 0;
 }
@@ -219,6 +219,8 @@ static void mp_decode_frame_helper(MotionPixelsContext *mp, GetBitContext *gb)
 {
     YuvPixel p;
     int y, y0;
+
+    av_assert1(mp->changes_map[0]);
 
     for (y = 0; y < mp->avctx->height; ++y) {
         if (mp->changes_map[y * mp->avctx->width] != 0) {

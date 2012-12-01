@@ -30,10 +30,10 @@
 #include "libavfilter/avfilter.h"
 #include "libavfilter/avfiltergraph.h"
 
-#include "libavutil/audioconvert.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/avutil.h"
+#include "libavutil/channel_layout.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/fifo.h"
 #include "libavutil/mathematics.h"
@@ -83,7 +83,6 @@ int debug_ts          = 0;
 int exit_on_error     = 0;
 int print_stats       = 1;
 int qp_hist           = 0;
-int same_quant        = 0;
 int stdin_interaction = 1;
 int frame_bits_per_raw_sample = 0;
 
@@ -156,6 +155,15 @@ static int opt_pad(void *optctx, const char *opt, const char *arg)
 {
     av_log(NULL, AV_LOG_FATAL, "Option '%s' has been removed, use the pad filter instead\n", opt);
     return -1;
+}
+
+static int opt_sameq(void *optctx, const char *opt, const char *arg)
+{
+    av_log(NULL, AV_LOG_ERROR, "Option '%s' was removed. "
+           "If you are looking for an option to preserve the quality (which is not "
+           "what -%s was for), use -qscale 0 or an equivalent quality factor option.\n",
+           opt, opt);
+    return AVERROR(EINVAL);
 }
 
 static int opt_video_channel(void *optctx, const char *opt, const char *arg)
@@ -362,7 +370,8 @@ static int opt_map_channel(void *optctx, const char *opt, const char *arg)
 }
 
 /**
- * Parse a metadata specifier in arg.
+ * Parse a metadata specifier passed as 'arg' parameter.
+ * @param arg  metadata string to parse
  * @param type metadata type is written here -- g(lobal)/s(tream)/c(hapter)/p(rogram)
  * @param index for type c/p, chapter/program index is written here
  * @param stream_spec for type s, the stream specifier is written here
@@ -423,6 +432,10 @@ static int copy_metadata(char *outspec, char *inspec, AVFormatContext *oc, AVFor
     if (type_in == 'c' || type_out == 'c')
         o->metadata_chapters_manual = 1;
 
+    /* ic is NULL when just disabling automatic mappings */
+    if (!ic)
+        return 0;
+
 #define METADATA_CHECK_INDEX(index, nb_elems, desc)\
     if ((index) < 0 || (index) >= (nb_elems)) {\
         av_log(NULL, AV_LOG_FATAL, "Invalid %s index %d while processing metadata maps.\n",\
@@ -443,9 +456,9 @@ static int copy_metadata(char *outspec, char *inspec, AVFormatContext *oc, AVFor
             METADATA_CHECK_INDEX(index, context->nb_programs, "program")\
             meta = &context->programs[index]->metadata;\
             break;\
-        default: av_assert0(0);\
         case 's':\
-            break;\
+            break; /* handled separately below */ \
+        default: av_assert0(0);\
         }\
 
     SET_DICT(type_in, meta_in, ic, idx_in);
@@ -536,10 +549,8 @@ static AVCodec *choose_decoder(OptionsContext *o, AVFormatContext *s, AVStream *
         return avcodec_find_decoder(st->codec->codec_id);
 }
 
-/**
- * Add all the streams from the given input file to the global
- * list of input streams.
- */
+/* Add all the streams from the given input file to the global
+ * list of input streams. */
 static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
 {
     int i;
@@ -575,6 +586,11 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
         }
 
         ist->dec = choose_decoder(o, ic, st);
+
+        ist->reinit_filters = -1;
+        MATCH_PER_STREAM_OPT(reinit_filters, i, ist->reinit_filters, ic, st);
+
+        ist->filter_in_rescale_delta_last = AV_NOPTS_VALUE;
 
         switch (dec->codec_type) {
         case AVMEDIA_TYPE_VIDEO:
@@ -903,8 +919,6 @@ static OutputStream *new_output_stream(OptionsContext *o, AVFormatContext *oc, e
     char *bsf = NULL, *next, *codec_tag = NULL;
     AVBitStreamFilterContext *bsfc, *bsfc_prev = NULL;
     double qscale = -1;
-    char *buf = NULL, *arg = NULL, *preset = NULL;
-    AVIOContext *s = NULL;
 
     if (!st) {
         av_log(NULL, AV_LOG_FATAL, "Could not alloc stream.\n");
@@ -926,36 +940,39 @@ static OutputStream *new_output_stream(OptionsContext *o, AVFormatContext *oc, e
     st->codec->codec_type = type;
     choose_encoder(o, oc, ost);
     if (ost->enc) {
+        AVIOContext *s = NULL;
+        char *buf = NULL, *arg = NULL, *preset = NULL;
+
         ost->opts  = filter_codec_opts(codec_opts, ost->enc->id, oc, st, ost->enc);
+
+        MATCH_PER_STREAM_OPT(presets, str, preset, oc, st);
+        if (preset && (!(ret = get_preset_file_2(preset, ost->enc->name, &s)))) {
+            do  {
+                buf = get_line(s);
+                if (!buf[0] || buf[0] == '#') {
+                    av_free(buf);
+                    continue;
+                }
+                if (!(arg = strchr(buf, '='))) {
+                    av_log(NULL, AV_LOG_FATAL, "Invalid line found in the preset file.\n");
+                    exit(1);
+                }
+                *arg++ = 0;
+                av_dict_set(&ost->opts, buf, arg, AV_DICT_DONT_OVERWRITE);
+                av_free(buf);
+            } while (!s->eof_reached);
+            avio_close(s);
+        }
+        if (ret) {
+            av_log(NULL, AV_LOG_FATAL,
+                   "Preset %s specified for stream %d:%d, but could not be opened.\n",
+                   preset, ost->file_index, ost->index);
+            exit(1);
+        }
     }
 
     avcodec_get_context_defaults3(st->codec, ost->enc);
     st->codec->codec_type = type; // XXX hack, avcodec_get_context_defaults2() sets type to unknown for stream copy
-
-    MATCH_PER_STREAM_OPT(presets, str, preset, oc, st);
-    if (preset && (!(ret = get_preset_file_2(preset, ost->enc->name, &s)))) {
-        do  {
-            buf = get_line(s);
-            if (!buf[0] || buf[0] == '#') {
-                av_free(buf);
-                continue;
-            }
-            if (!(arg = strchr(buf, '='))) {
-                av_log(NULL, AV_LOG_FATAL, "Invalid line found in the preset file.\n");
-                exit(1);
-            }
-            *arg++ = 0;
-            av_dict_set(&ost->opts, buf, arg, AV_DICT_DONT_OVERWRITE);
-            av_free(buf);
-        } while (!s->eof_reached);
-        avio_close(s);
-    }
-    if (ret) {
-        av_log(NULL, AV_LOG_FATAL,
-               "Preset %s specified for stream %d:%d, but could not be opened.\n",
-               preset, ost->file_index, ost->index);
-        exit(1);
-    }
 
     ost->max_frames = INT64_MAX;
     MATCH_PER_STREAM_OPT(max_frames, i64, ost->max_frames, oc, st);
@@ -989,7 +1006,7 @@ static OutputStream *new_output_stream(OptionsContext *o, AVFormatContext *oc, e
     }
 
     MATCH_PER_STREAM_OPT(qscale, dbl, qscale, oc, st);
-    if (qscale >= 0 || same_quant) {
+    if (qscale >= 0) {
         st->codec->flags |= CODEC_FLAG_QSCALE;
         st->codec->global_quality = FF_QP2LAMBDA * qscale;
     }
@@ -998,6 +1015,7 @@ static OutputStream *new_output_stream(OptionsContext *o, AVFormatContext *oc, e
         st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;
 
     av_opt_get_int(sws_opts, "sws_flags", 0, &ost->sws_flags);
+    av_opt_get_int   (swr_opts, "filter_type"  , 0, &ost->swr_filter_type);
     av_opt_get_int   (swr_opts, "dither_method", 0, &ost->swr_dither_method);
     av_opt_get_double(swr_opts, "dither_scale" , 0, &ost->swr_dither_scale);
 
@@ -1078,7 +1096,7 @@ static OutputStream *new_video_stream(OptionsContext *o, AVFormatContext *oc, in
             if (!*++frame_pix_fmt)
                 frame_pix_fmt = NULL;
         }
-        if (frame_pix_fmt && (video_enc->pix_fmt = av_get_pix_fmt(frame_pix_fmt)) == PIX_FMT_NONE) {
+        if (frame_pix_fmt && (video_enc->pix_fmt = av_get_pix_fmt(frame_pix_fmt)) == AV_PIX_FMT_NONE) {
             av_log(NULL, AV_LOG_FATAL, "Unknown pixel format requested: %s.\n", frame_pix_fmt);
             exit(1);
         }
@@ -1296,7 +1314,13 @@ static int copy_chapters(InputFile *ifile, OutputFile *ofile, int copy_metadata)
 {
     AVFormatContext *is = ifile->ctx;
     AVFormatContext *os = ofile->ctx;
+    AVChapter **tmp;
     int i;
+
+    tmp = av_realloc_f(os->chapters, is->nb_chapters + os->nb_chapters, sizeof(*os->chapters));
+    if (!tmp)
+        return AVERROR(ENOMEM);
+    os->chapters = tmp;
 
     for (i = 0; i < is->nb_chapters; i++) {
         AVChapter *in_ch = is->chapters[i], *out_ch;
@@ -1323,11 +1347,7 @@ static int copy_chapters(InputFile *ifile, OutputFile *ofile, int copy_metadata)
         if (copy_metadata)
             av_dict_copy(&out_ch->metadata, in_ch->metadata, 0);
 
-        os->nb_chapters++;
-        os->chapters = av_realloc_f(os->chapters, os->nb_chapters, sizeof(AVChapter));
-        if (!os->chapters)
-            return AVERROR(ENOMEM);
-        os->chapters[os->nb_chapters - 1] = out_ch;
+        os->chapters[os->nb_chapters++] = out_ch;
     }
     return 0;
 }
@@ -1368,8 +1388,11 @@ static int read_ffserver_streams(OptionsContext *o, AVFormatContext *s, const ch
             choose_pixel_fmt(st, codec, st->codec->pix_fmt);
     }
 
+    /* ffserver seeking with date=... needs a date reference */
+    err = parse_option(o, "metadata", "creation_time=now", options);
+
     avformat_close_input(&ic);
-    return 0;
+    return err;
 }
 
 static void init_output_filter(OutputFilter *ofilter, OptionsContext *o,
@@ -1695,7 +1718,9 @@ loop_end:
             av_log(NULL, AV_LOG_FATAL, "Invalid input file index %d while processing metadata maps\n", in_file_index);
             exit(1);
         }
-        copy_metadata(o->metadata_map[i].specifier, *p ? p + 1 : p, oc, in_file_index >= 0 ? input_files[in_file_index]->ctx : NULL, o);
+        copy_metadata(o->metadata_map[i].specifier, *p ? p + 1 : p, oc,
+                      in_file_index >= 0 ?
+                      input_files[in_file_index]->ctx : NULL, o);
     }
 
     /* copy chapters */
@@ -2150,7 +2175,7 @@ void show_help_default(const char *opt, const char *arg)
     const int per_file = OPT_SPEC | OPT_OFFSET | OPT_PERFILE;
     int show_advanced = 0, show_avoptions = 0;
 
-    if (opt) {
+    if (opt && *opt) {
         if (!strcmp(opt, "long"))
             show_advanced = 1;
         else if (!strcmp(opt, "full"))
@@ -2227,7 +2252,7 @@ static int opt_progress(void *optctx, const char *opt, const char *arg)
         arg = "pipe:";
     ret = avio_open2(&avio, arg, AVIO_FLAG_WRITE, &int_cb, NULL);
     if (ret < 0) {
-        av_log(0, AV_LOG_ERROR, "Failed to open progress URL \"%s\": %s\n",
+        av_log(NULL, AV_LOG_ERROR, "Failed to open progress URL \"%s\": %s\n",
                arg, av_err2str(ret));
         return ret;
     }
@@ -2333,6 +2358,8 @@ const OptionDef options[] = {
         "set profile", "profile" },
     { "filter",         HAS_ARG | OPT_STRING | OPT_SPEC,             { .off = OFFSET(filters) },
         "set stream filterchain", "filter_list" },
+    { "reinit_filter",  HAS_ARG | OPT_INT | OPT_SPEC,                { .off = OFFSET(reinit_filters) },
+        "reinit filtergraph on input parameter changes", "" },
     { "filter_complex", HAS_ARG | OPT_EXPERT,                        { .func_arg = opt_filter_complex },
         "create a complex filtergraph", "graph_description" },
     { "stats",          OPT_BOOL,                                    { &print_stats },
@@ -2385,10 +2412,10 @@ const OptionDef options[] = {
         "rate control override for specific intervals", "override" },
     { "vcodec",       OPT_VIDEO | HAS_ARG  | OPT_PERFILE,                        { .func_arg = opt_video_codec },
         "force video codec ('copy' to copy stream)", "codec" },
-    { "sameq",        OPT_VIDEO | OPT_BOOL | OPT_EXPERT ,                        { &same_quant },
-        "use same quantizer as source (implies VBR)" },
-    { "same_quant",   OPT_VIDEO | OPT_BOOL | OPT_EXPERT,                         { &same_quant },
-        "use same quantizer as source (implies VBR)" },
+    { "sameq",        OPT_VIDEO | OPT_EXPERT ,                                   { .func_arg = opt_sameq },
+        "Removed" },
+    { "same_quant",   OPT_VIDEO | OPT_EXPERT ,                                   { .func_arg = opt_sameq },
+        "Removed" },
     { "timecode",     OPT_VIDEO | HAS_ARG | OPT_PERFILE,                         { .func_arg = opt_timecode },
         "set initial TimeCode value.", "hh:mm:ss[:;.]ff" },
     { "pass",         OPT_VIDEO | HAS_ARG | OPT_SPEC | OPT_INT,                  { .off = OFFSET(pass) },

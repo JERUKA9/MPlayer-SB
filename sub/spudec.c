@@ -227,7 +227,9 @@ static int spudec_alloc_image(spudec_handle_t *this, int stride, int height)
   if (this->image_size < this->stride * this->height) {
     if (this->image != NULL) {
       free(this->image);
+      this->image = NULL;
       free(this->pal_image);
+      this->pal_image = NULL;
       this->image_size = 0;
       this->pal_width = this->pal_height  = 0;
     }
@@ -540,11 +542,6 @@ static void spudec_process_control(spudec_handle_t *this, int pts100)
 	       current_nibble[0] / 2, current_nibble[1] / 2);
 	off+=4;
 	break;
-      case 0xff:
-	/* All done, bye-bye */
-	mp_msg(MSGT_SPUDEC,MSGL_DBG2,"Done!\n");
-	return;
-//	break;
       default:
 	mp_msg(MSGT_SPUDEC,MSGL_WARN,"spudec: Error determining control type 0x%02x.  Skipping %d bytes.\n",
 	       type, next_off - off);
@@ -959,6 +956,11 @@ void spudec_draw_scaled(void *me, unsigned int dxs, unsigned int dys, void (*dra
 	  table_y = calloc(spu->scaled_height, sizeof(scale_pixel));
 	  if (!table_x || !table_y) {
 	    mp_msg(MSGT_SPUDEC, MSGL_FATAL, "Fatal: spudec_draw_scaled: calloc failed\n");
+	    free(table_x);
+	    table_x = NULL;
+	    free(table_y);
+	    table_y = NULL;
+	    break;
 	  }
 	  scale_table(0, 0, spu->width - 1, spu->scaled_width - 1, table_x);
 	  scale_table(0, 0, spu->height - 1, spu->scaled_height - 1, table_y);

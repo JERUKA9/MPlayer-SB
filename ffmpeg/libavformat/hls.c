@@ -368,6 +368,9 @@ static int open_input(struct variant *var)
             goto cleanup;
         av_opt_set(var->input->priv_data, "key", key, 0);
         av_opt_set(var->input->priv_data, "iv", iv, 0);
+        /* Need to repopulate options */
+        av_dict_free(&opts);
+        av_dict_set(&opts, "seekable", "0", 0);
         if ((ret = ffurl_connect(var->input, &opts)) < 0) {
             ffurl_close(var->input);
             var->input = NULL;
@@ -406,7 +409,7 @@ reload:
             /* If we need to reload the playlist again below (if
              * there's still no more segments), switch to a reload
              * interval of half the target duration. */
-            reload_interval = v->target_duration * 500000;
+            reload_interval = v->target_duration * 500000LL;
         }
         if (v->cur_seq_no < v->start_seq_no) {
             av_log(NULL, AV_LOG_WARNING,
@@ -501,6 +504,7 @@ static int hls_read_header(AVFormatContext *s)
         struct variant *v = c->variants[i];
         AVInputFormat *in_fmt = NULL;
         char bitrate_str[20];
+        AVProgram *program = NULL;
         if (v->n_segments == 0)
             continue;
 
@@ -546,6 +550,13 @@ static int hls_read_header(AVFormatContext *s)
         if (ret < 0)
             goto fail;
         snprintf(bitrate_str, sizeof(bitrate_str), "%d", v->bandwidth);
+
+        /* Create new AVprogram for variant i */
+        program = av_new_program(s, i);
+        if (!program)
+            goto fail;
+        av_dict_set(&program->metadata, "variant_bitrate", bitrate_str, 0);
+
         /* Create new AVStreams for each stream in this variant */
         for (j = 0; j < v->ctx->nb_streams; j++) {
             AVStream *st = avformat_new_stream(s, NULL);
@@ -553,6 +564,7 @@ static int hls_read_header(AVFormatContext *s)
                 ret = AVERROR(ENOMEM);
                 goto fail;
             }
+            ff_program_add_stream_index(s, i, stream_offset + j);
             st->id = i;
             avcodec_copy_context(st->codec, v->ctx->streams[j]->codec);
             if (v->bandwidth)

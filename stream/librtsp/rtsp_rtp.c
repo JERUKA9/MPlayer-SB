@@ -92,9 +92,7 @@ rtcp_send_rr (rtsp_t *s, struct rtp_rtsp_session_t *st)
 
   if (st->count == RTCP_SEND_FREQUENCY)
   {
-    char rtcp_content[RTCP_RR_SIZE];
-    strcpy (rtcp_content, RTCP_RR);
-    send (st->rtcp_socket, rtcp_content, RTCP_RR_SIZE, DEFAULT_SEND_FLAGS);
+    send (st->rtcp_socket, RTCP_RR, RTCP_RR_SIZE, DEFAULT_SEND_FLAGS);
 
     /* ping RTSP server to keep connection alive.
        we use OPTIONS instead of PING as not all servers support it */
@@ -264,7 +262,7 @@ rtcp_connect (int client_port, int server_port, const char* server_hostname)
   }
 
   sin.sin_family = AF_INET;
-  memcpy (&(sin.sin_addr.s_addr), hp->h_addr, sizeof (hp->h_addr));
+  memcpy (&(sin.sin_addr.s_addr), hp->h_addr, hp->h_length);
   sin.sin_port = htons (server_port);
 
   /* datagram socket */

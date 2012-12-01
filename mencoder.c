@@ -1557,7 +1557,7 @@ if(sh_audio && !demuxer2){
           ((ds_tell(d_audio)-sh_audio->a_in_buffer_len)/sh_audio->audio.dwSampleSize) :
           (d_audio->block_no); // <- used for VBR audio
         a_pts=samples*(float)sh_audio->audio.dwScale/(float)sh_audio->audio.dwRate;
-	delay_corrected=1;
+        delay_corrected=1;
     } else
 #endif
     {

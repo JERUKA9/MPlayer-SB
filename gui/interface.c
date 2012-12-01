@@ -191,7 +191,7 @@ void guiInit(void)
     guiApp.videoWindow.DandDHandler = uiDandDHandler;
 
     wsSetBackgroundRGB(&guiApp.videoWindow, guiApp.video.R, guiApp.video.G, guiApp.video.B);
-    wsClearWindow(guiApp.videoWindow);
+    wsClearWindow(&guiApp.videoWindow);
 
     if (guiApp.video.Bitmap.Image)
         wsConvert(&guiApp.videoWindow, guiApp.video.Bitmap.Image);
@@ -397,7 +397,6 @@ int gui(int what, void *data)
         wsVisibleMouse(&guiApp.videoWindow, wsHideMouseCursor);
 
         if (guiInfo.NewPlay == GUI_FILE_NEW) {
-            dvd_title = 0;
             audio_id  = -1;
             video_id  = -1;
             dvdsub_id = -1;
@@ -438,10 +437,10 @@ int gui(int what, void *data)
             sprintf(tmp, "dvd://%d", guiInfo.Track);
             uiSetFileName(NULL, tmp, SAME_STREAMTYPE);
         }
-
+#ifdef CONFIG_DVDREAD
             dvd_chapter = guiInfo.Chapter;
             dvd_angle   = guiInfo.Angle;
-
+#endif
             break;
         }
 
@@ -623,6 +622,12 @@ int gui(int what, void *data)
             stream_control(stream, STREAM_CTRL_GET_NUM_CHAPTERS, &guiInfo.Chapters);
             guiInfo.Angles = 0;
             stream_control(stream, STREAM_CTRL_GET_NUM_ANGLES, &guiInfo.Angles);
+            guiInfo.Track = 0;
+            stream_control(stream, STREAM_CTRL_GET_CURRENT_TITLE, &guiInfo.Track);
+            guiInfo.Track++;
+            // guiInfo.Chapter will be set by mplayer
+            guiInfo.Angle = 1;
+            stream_control(stream, STREAM_CTRL_GET_ANGLE, &guiInfo.Angle);
 #ifdef CONFIG_DVDREAD
             dvd = stream->priv;
             guiInfo.AudioStreams = dvd->nr_of_channels;
@@ -630,9 +635,6 @@ int gui(int what, void *data)
             guiInfo.Subtitles = dvd->nr_of_subtitles;
             memcpy(guiInfo.Subtitle, dvd->subtitles, sizeof(dvd->subtitles));
 #endif
-            guiInfo.Track   = dvd_title + 1;
-            guiInfo.Chapter = dvd_chapter + 1;
-            guiInfo.Angle   = dvd_angle + 1;
             break;
         }
 
@@ -759,12 +761,12 @@ int gui(int what, void *data)
 
     case GUI_END_FILE:
 
-        uiEventHandling(ivRedraw, 1);
-
         guiInfo.sh_video = NULL;
 
-        if (!uiGotoTheNext && guiInfo.Playing) {
-            uiGotoTheNext = 1;
+        uiEventHandling(ivRedraw, 1);
+
+        if (!uiProcessNextInPlaylist && guiInfo.Playing) {
+            uiProcessNextInPlaylist = 1;
             break;
         }
 
@@ -787,13 +789,24 @@ int gui(int what, void *data)
 
             filename = NULL;
 
-            guiInfo.ElapsedTime   = 0;
-            guiInfo.Position      = 0;
-            guiInfo.AudioChannels = 0;
+            if (!isPlaylistStreamtype)
+                guiInfo.Track = (guiInfo.StreamType == STREAMTYPE_VCD ? 2 : 1);
+            if (guiInfo.Chapter)
+                guiInfo.Chapter = 1;
+            if (guiInfo.Angle)
+                guiInfo.Angle = 1;
 
-            guiInfo.Track   = 1;
-            guiInfo.Chapter = 1;
-            guiInfo.Angle   = 1;
+            if (isPlaylistStreamtype && !listMgr(PLAYLIST_ITEM_GET_CURR, 0)) {
+                guiInfo.Track         = 0;
+                guiInfo.Chapter       = 0;
+                guiInfo.Angle         = 0;
+                guiInfo.RunningTime   = 0;
+                guiInfo.AudioChannels = 0;
+                uiSetFileName(NULL, NULL, STREAMTYPE_DUMMY);
+            }
+
+            guiInfo.ElapsedTime = 0;
+            guiInfo.Position    = 0;
 
             if (gtkShowVideoWindow) {
                 guiInfo.VideoWindow = True;
@@ -821,7 +834,7 @@ int gui(int what, void *data)
             wsHandleEvents();
             uiVideoRender = 1;
             wsSetBackgroundRGB(&guiApp.videoWindow, guiApp.video.R, guiApp.video.G, guiApp.video.B);
-            wsClearWindow(guiApp.videoWindow);
+            wsClearWindow(&guiApp.videoWindow);
             wsPostRedisplay(&guiApp.videoWindow);
             wsVisibleMouse(&guiApp.videoWindow, wsShowMouseCursor);
         }
@@ -830,38 +843,6 @@ int gui(int what, void *data)
     }
 
     return True;
-}
-
-// This function adds/inserts one file into the gui playlist.
-static int import_file_into_gui(char *temp, int insert)
-{
-    char *filename, *pathname;
-    plItem *item;
-
-    filename = strdup(mp_basename(temp));
-    pathname = strdup(temp);
-
-    if (strlen(pathname) - strlen(filename) > 0)
-        pathname[strlen(pathname) - strlen(filename) - 1] = 0;                                            // we have some path, so remove / at end
-    else
-        pathname[strlen(pathname) - strlen(filename)] = 0;
-
-    mp_msg(MSGT_GPLAYER, MSGL_DBG2, "[interface] playtree, add: %s/%s\n", pathname, filename);
-
-    item = calloc(1, sizeof(plItem));
-
-    if (!item)
-        return 0;
-
-    item->name = filename;
-    item->path = pathname;
-
-    if (insert)
-        listMgr(PLAYLIST_ITEM_INSERT, item);           // inserts the item after current, and makes current=item
-    else
-        listMgr(PLAYLIST_ITEM_APPEND, item);
-
-    return 1;
 }
 
 // This function imports the initial playtree (based on cmd-line files)
@@ -879,15 +860,18 @@ int guiPlaylistInitialize(play_tree_t *my_playtree, m_config_t *config, int enqu
     if ((my_pt_iter = pt_iter_create(&my_playtree, config))) {
         while ((filename = pt_iter_get_next_file(my_pt_iter)) != NULL)
             /* add it to end of list */
-            if (import_file_into_gui(filename, 0))
+            if (add_to_gui_playlist(filename, PLAYLIST_ITEM_APPEND))
                 result = 1;
     }
 
     uiCurr();   // update filename
-    uiGotoTheNext = 1;
+    uiProcessNextInPlaylist = 1;
 
     if (enqueue)
         filename = NULL;            // don't start playing
+
+    if (result)
+        guiInfo.Track = 1;
 
     return result;
 }
@@ -908,7 +892,7 @@ int guiPlaylistAdd(play_tree_t *my_playtree, m_config_t *config)
     if ((my_pt_iter = pt_iter_create(&my_playtree, config))) {
         while ((filename = pt_iter_get_next_file(my_pt_iter)) != NULL)
             /* insert it into the list and set plCurrent=new item */
-            if (import_file_into_gui(filename, 1))
+            if (add_to_gui_playlist(filename, PLAYLIST_ITEM_INSERT))
                 result = 1;
 
         pt_iter_destroy(&my_pt_iter);

@@ -142,7 +142,6 @@ static void sbr_turnoff(SpectralBandReplication *sbr) {
 
 av_cold void ff_aac_sbr_ctx_init(AACContext *ac, SpectralBandReplication *sbr)
 {
-    float mdct_scale;
     if(sbr->mdct.mdct_bits)
         return;
     sbr->kx[0] = sbr->kx[1];
@@ -152,9 +151,8 @@ av_cold void ff_aac_sbr_ctx_init(AACContext *ac, SpectralBandReplication *sbr)
     /* SBR requires samples to be scaled to +/-32768.0 to work correctly.
      * mdct scale factors are adjusted to scale up from +/-1.0 at analysis
      * and scale back down at synthesis. */
-    mdct_scale = ac->avctx->sample_fmt == AV_SAMPLE_FMT_FLT ? 32768.0f : 1.0f;
-    ff_mdct_init(&sbr->mdct,     7, 1, 1.0 / (64 * mdct_scale));
-    ff_mdct_init(&sbr->mdct_ana, 7, 1, -2.0 * mdct_scale);
+    ff_mdct_init(&sbr->mdct,     7, 1, 1.0 / (64 * 32768.0));
+    ff_mdct_init(&sbr->mdct_ana, 7, 1, -2.0 * 32768.0);
     ff_ps_ctx_init(&sbr->ps);
     ff_sbrdsp_init(&sbr->dsp);
 }
@@ -340,9 +338,6 @@ static int sbr_make_f_master(AACContext *ac, SpectralBandReplication *sbr,
     } else
         temp = 5000;
 
-    start_min = ((temp << 7) + (sbr->sample_rate >> 1)) / sbr->sample_rate;
-    stop_min  = ((temp << 8) + (sbr->sample_rate >> 1)) / sbr->sample_rate;
-
     switch (sbr->sample_rate) {
     case 16000:
         sbr_offset_ptr = sbr_offset[0];
@@ -367,6 +362,9 @@ static int sbr_make_f_master(AACContext *ac, SpectralBandReplication *sbr,
                "Unsupported sample rate for SBR: %d\n", sbr->sample_rate);
         return -1;
     }
+
+    start_min = ((temp << 7) + (sbr->sample_rate >> 1)) / sbr->sample_rate;
+    stop_min  = ((temp << 8) + (sbr->sample_rate >> 1)) / sbr->sample_rate;
 
     sbr->k[0] = start_min + sbr_offset_ptr[spectrum->bs_start_freq];
 
@@ -555,7 +553,7 @@ static int sbr_hf_calc_npatches(AACContext *ac, SpectralBandReplication *sbr)
             k = sbr->n_master;
     } while (sb != sbr->kx[1] + sbr->m[1]);
 
-    if (sbr->patch_num_subbands[sbr->num_patches-1] < 3 && sbr->num_patches > 1)
+    if (sbr->num_patches > 1 && sbr->patch_num_subbands[sbr->num_patches-1] < 3)
         sbr->num_patches--;
 
     return 0;
@@ -749,7 +747,7 @@ static int read_sbr_grid(AACContext *ac, SpectralBandReplication *sbr,
         if (ch_data->bs_frame_class == FIXFIX) {
             idx = ch_data->bs_num_env >> 1;
         } else if (ch_data->bs_frame_class & 1) { // FIXVAR or VARVAR
-            idx = ch_data->bs_num_env - FFMAX(bs_pointer - 1, 1);
+            idx = ch_data->bs_num_env - FFMAX((int)bs_pointer - 1, 1);
         } else { // VARFIX
             if (!bs_pointer)
                 idx = 1;
@@ -926,7 +924,7 @@ static void read_sbr_extension(AACContext *ac, SpectralBandReplication *sbr,
 #if 1
             *num_bits_left -= ff_ps_read_data(ac->avctx, gb, &sbr->ps, *num_bits_left);
 #else
-            av_log_missing_feature(ac->avctx, "Parametric Stereo is", 0);
+            av_log_missing_feature(ac->avctx, "Parametric Stereo", 0);
             skip_bits_long(gb, *num_bits_left); // bs_fill_bits
             *num_bits_left = 0;
 #endif
@@ -935,7 +933,7 @@ static void read_sbr_extension(AACContext *ac, SpectralBandReplication *sbr,
     default:
         // some files contain 0-padding
         if (bs_extension_id || *num_bits_left > 16 || show_bits(gb, *num_bits_left))
-            av_log_missing_feature(ac->avctx, "Reserved SBR extensions are", 1);
+            av_log_missing_feature(ac->avctx, "Reserved SBR extensions", 1);
         skip_bits_long(gb, *num_bits_left); // bs_fill_bits
         *num_bits_left = 0;
         break;

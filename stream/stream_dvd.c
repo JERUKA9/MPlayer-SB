@@ -44,6 +44,7 @@
 #include "libmpdemux/demuxer.h"
 
 static char* dvd_device_current;
+static int dvd_title;
 int dvd_angle=1;
 
 #define	LIBDVDREAD_VERSION(maj,min,micro)	((maj)*10000 + (min)*100 + (micro))
@@ -684,6 +685,11 @@ static int control(stream_t *stream,int cmd,void* arg)
             r = seek_to_chapter(stream, d->vts_file, d->tt_srpt, d->cur_title-1, *((unsigned int *)arg));
             if(! r) return STREAM_UNSUPPORTED;
 
+            return 1;
+        }
+        case STREAM_CTRL_GET_CURRENT_TITLE:
+        {
+            *((unsigned int *)arg) = d->cur_title - 1;
             return 1;
         }
         case STREAM_CTRL_GET_CURRENT_CHAPTER:

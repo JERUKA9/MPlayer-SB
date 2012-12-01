@@ -63,19 +63,19 @@ static const AVOption blackdetect_options[] = {
 AVFILTER_DEFINE_CLASS(blackdetect);
 
 #define YUVJ_FORMATS \
-    PIX_FMT_YUVJ420P, PIX_FMT_YUVJ422P, PIX_FMT_YUVJ444P, PIX_FMT_YUVJ440P
+    AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUVJ444P, AV_PIX_FMT_YUVJ440P
 
-static enum PixelFormat yuvj_formats[] = {
-    YUVJ_FORMATS, PIX_FMT_NONE
+static enum AVPixelFormat yuvj_formats[] = {
+    YUVJ_FORMATS, AV_PIX_FMT_NONE
 };
 
 static int query_formats(AVFilterContext *ctx)
 {
-    static const enum PixelFormat pix_fmts[] = {
-        PIX_FMT_YUV410P, PIX_FMT_YUV420P, PIX_FMT_GRAY8, PIX_FMT_NV12,
-        PIX_FMT_NV21, PIX_FMT_YUV444P, PIX_FMT_YUV422P, PIX_FMT_YUV411P,
+    static const enum AVPixelFormat pix_fmts[] = {
+        AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV420P, AV_PIX_FMT_GRAY8, AV_PIX_FMT_NV12,
+        AV_PIX_FMT_NV21, AV_PIX_FMT_YUV444P, AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV411P,
         YUVJ_FORMATS,
-        PIX_FMT_NONE
+        AV_PIX_FMT_NONE
     };
 
     ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
@@ -197,29 +197,35 @@ static int end_frame(AVFilterLink *inlink)
     return ff_end_frame(inlink->dst->outputs[0]);
 }
 
+static const AVFilterPad blackdetect_inputs[] = {
+    {
+        .name             = "default",
+        .type             = AVMEDIA_TYPE_VIDEO,
+        .config_props     = config_input,
+        .draw_slice       = draw_slice,
+        .get_video_buffer = ff_null_get_video_buffer,
+        .start_frame      = ff_null_start_frame,
+        .end_frame        = end_frame,
+    },
+    { NULL }
+};
+
+static const AVFilterPad blackdetect_outputs[] = {
+    {
+        .name          = "default",
+        .type          = AVMEDIA_TYPE_VIDEO,
+        .request_frame = request_frame,
+    },
+    { NULL }
+};
+
 AVFilter avfilter_vf_blackdetect = {
     .name          = "blackdetect",
     .description   = NULL_IF_CONFIG_SMALL("Detect video intervals that are (almost) black."),
     .priv_size     = sizeof(BlackDetectContext),
     .init          = init,
     .query_formats = query_formats,
-
-    .inputs = (const AVFilterPad[]) {
-        { .name             = "default",
-          .type             = AVMEDIA_TYPE_VIDEO,
-          .config_props     = config_input,
-          .draw_slice       = draw_slice,
-          .get_video_buffer = ff_null_get_video_buffer,
-          .start_frame      = ff_null_start_frame,
-          .end_frame        = end_frame, },
-        { .name = NULL }
-    },
-
-    .outputs = (const AVFilterPad[]) {
-        { .name             = "default",
-          .type             = AVMEDIA_TYPE_VIDEO,
-          .request_frame    = request_frame, },
-        { .name = NULL }
-    },
-    .priv_class = &blackdetect_class,
+    .inputs        = blackdetect_inputs,
+    .outputs       = blackdetect_outputs,
+    .priv_class    = &blackdetect_class,
 };

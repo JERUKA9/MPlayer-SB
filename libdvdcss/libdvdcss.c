@@ -5,7 +5,7 @@
  *          Håkan Hjort <d95hjort@dtek.chalmers.se>
  *
  * Copyright (C) 1998-2008 VideoLAN
- * $Id: libdvdcss.c 31883 2010-08-01 13:52:17Z reimar $
+ * $Id: libdvdcss.c 35255 2012-10-20 07:13:46Z cehoyos $
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -120,7 +120,7 @@
 #   include <limits.h>
 #endif
 
-#ifdef HAVE_DIRECT_H
+#if HAVE_DIRECT_H
 #   include <direct.h>
 #endif
 
@@ -238,7 +238,7 @@ LIBDVDCSS_EXPORT dvdcss_t dvdcss_open ( char *psz_target )
      */
     if( psz_cache == NULL || psz_cache[0] == '\0' )
     {
-#ifdef HAVE_DIRECT_H
+#if HAVE_DIRECT_H
         typedef HRESULT( WINAPI *SHGETFOLDERPATH )
                        ( HWND, int, HANDLE, DWORD, LPTSTR );
 

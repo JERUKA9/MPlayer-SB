@@ -353,6 +353,7 @@ static int decode_frame_header(VP8Context *s, const uint8_t *buf, int buf_size)
         memcpy(s->prob->pred8x8c , vp8_pred8x8c_prob_inter , sizeof(s->prob->pred8x8c));
         memcpy(s->prob->mvc      , vp8_mv_default_prob     , sizeof(s->prob->mvc));
         memset(&s->segmentation, 0, sizeof(s->segmentation));
+        memset(&s->lf_delta, 0, sizeof(s->lf_delta));
     }
 
     ff_vp56_init_range_decoder(c, buf, header_size);
@@ -1964,7 +1965,8 @@ static int vp8_decode_frame(AVCodecContext *avctx, void *data, int *data_size,
     // top edge of 127 for intra prediction
     if (!(avctx->flags & CODEC_FLAG_EMU_EDGE)) {
         s->top_border[0][15] = s->top_border[0][23] = 127;
-        memset(s->top_border[1]-1, 127, s->mb_width*sizeof(*s->top_border)+1);
+        s->top_border[0][31] = 127;
+        memset(s->top_border[1], 127, s->mb_width*sizeof(*s->top_border));
     }
     memset(s->ref_count, 0, sizeof(s->ref_count));
 
@@ -2017,7 +2019,7 @@ static av_cold int vp8_decode_init(AVCodecContext *avctx)
     VP8Context *s = avctx->priv_data;
 
     s->avctx = avctx;
-    avctx->pix_fmt = PIX_FMT_YUV420P;
+    avctx->pix_fmt = AV_PIX_FMT_YUV420P;
 
     ff_dsputil_init(&s->dsp, avctx);
     ff_h264_pred_init(&s->hpc, AV_CODEC_ID_VP8, 8, 1);

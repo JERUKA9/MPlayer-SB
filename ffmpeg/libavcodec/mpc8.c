@@ -25,12 +25,12 @@
  * divided into 32 subbands.
  */
 
+#include "libavutil/channel_layout.h"
 #include "libavutil/lfg.h"
 #include "avcodec.h"
 #include "get_bits.h"
 #include "dsputil.h"
 #include "mpegaudiodsp.h"
-#include "libavutil/audioconvert.h"
 
 #include "mpc.h"
 #include "mpc8data.h"
@@ -134,7 +134,7 @@ static av_cold int mpc8_decode_init(AVCodecContext * avctx)
     channels = get_bits(&gb, 4) + 1;
     if (channels > 2) {
         av_log_missing_feature(avctx, "Multichannel MPC SV8", 1);
-        return -1;
+        return AVERROR_PATCHWELCOME;
     }
     c->MSS = get_bits1(&gb);
     c->frames = 1 << (get_bits(&gb, 3) * 2);

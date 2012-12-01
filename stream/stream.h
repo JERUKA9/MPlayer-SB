@@ -100,6 +100,7 @@
 #define STREAM_CTRL_SET_ANGLE 11
 #define STREAM_CTRL_GET_NUM_TITLES 12
 #define STREAM_CTRL_GET_LANG 13
+#define STREAM_CTRL_GET_CURRENT_TITLE 14
 
 enum stream_ctrl_type {
 	stream_ctrl_audio,
@@ -379,7 +380,6 @@ int stream_seek_internal(stream_t *s, off_t newpos);
 extern int bluray_angle;
 extern int bluray_chapter;
 extern int dvd_speed;
-extern int dvd_title;
 extern int dvd_chapter;
 extern int dvd_last_chapter;
 extern int dvd_angle;

@@ -52,12 +52,12 @@ static av_cold void uninit(AVFilterContext *ctx)
 
 static int query_formats(AVFilterContext *ctx)
 {
-    enum PixelFormat main_fmts[] = {
-        PIX_FMT_YUVA444P, PIX_FMT_YUVA422P, PIX_FMT_YUVA420P,
-        PIX_FMT_RGBA, PIX_FMT_BGRA, PIX_FMT_ARGB, PIX_FMT_ABGR,
-        PIX_FMT_NONE
+    enum AVPixelFormat main_fmts[] = {
+        AV_PIX_FMT_YUVA444P, AV_PIX_FMT_YUVA422P, AV_PIX_FMT_YUVA420P,
+        AV_PIX_FMT_RGBA, AV_PIX_FMT_BGRA, AV_PIX_FMT_ARGB, AV_PIX_FMT_ABGR,
+        AV_PIX_FMT_NONE
     };
-    enum PixelFormat alpha_fmts[] = { PIX_FMT_GRAY8, PIX_FMT_NONE };
+    enum AVPixelFormat alpha_fmts[] = { AV_PIX_FMT_GRAY8, AV_PIX_FMT_NONE };
     AVFilterFormats *main_formats = ff_make_format_list(main_fmts);
     AVFilterFormats *alpha_formats = ff_make_format_list(alpha_fmts);
     ff_formats_ref(main_formats, &ctx->inputs[0]->out_formats);
@@ -176,6 +176,37 @@ static int request_frame(AVFilterLink *outlink)
     return 0;
 }
 
+static const AVFilterPad alphamerge_inputs[] = {
+    {
+        .name             = "main",
+        .type             = AVMEDIA_TYPE_VIDEO,
+        .config_props     = config_input_main,
+        .get_video_buffer = ff_null_get_video_buffer,
+        .start_frame      = start_frame,
+        .draw_slice       = draw_slice,
+        .end_frame        = end_frame,
+        .min_perms        = AV_PERM_READ | AV_PERM_WRITE | AV_PERM_PRESERVE,
+    },{
+        .name             = "alpha",
+        .type             = AVMEDIA_TYPE_VIDEO,
+        .start_frame      = start_frame,
+        .draw_slice       = draw_slice,
+        .end_frame        = end_frame,
+        .min_perms        = AV_PERM_READ | AV_PERM_PRESERVE,
+    },
+    { NULL }
+};
+
+static const AVFilterPad alphamerge_outputs[] = {
+    {
+        .name          = "default",
+        .type          = AVMEDIA_TYPE_VIDEO,
+        .config_props  = config_output,
+        .request_frame = request_frame,
+    },
+    { NULL }
+};
+
 AVFilter avfilter_vf_alphamerge = {
     .name           = "alphamerge",
     .description    = NULL_IF_CONFIG_SMALL("Copy the luma value of the second "
@@ -183,29 +214,6 @@ AVFilter avfilter_vf_alphamerge = {
     .uninit         = uninit,
     .priv_size      = sizeof(AlphaMergeContext),
     .query_formats  = query_formats,
-
-    .inputs    = (const AVFilterPad[]) {
-        { .name             = "main",
-          .type             = AVMEDIA_TYPE_VIDEO,
-          .config_props     = config_input_main,
-          .get_video_buffer = ff_null_get_video_buffer,
-          .start_frame      = start_frame,
-          .draw_slice       = draw_slice,
-          .end_frame        = end_frame,
-          .min_perms        = AV_PERM_READ | AV_PERM_WRITE | AV_PERM_PRESERVE },
-        { .name             = "alpha",
-          .type             = AVMEDIA_TYPE_VIDEO,
-          .start_frame      = start_frame,
-          .draw_slice       = draw_slice,
-          .end_frame        = end_frame,
-          .min_perms        = AV_PERM_READ | AV_PERM_PRESERVE },
-        { .name = NULL }
-    },
-    .outputs   = (const AVFilterPad[]) {
-      { .name               = "default",
-        .type               = AVMEDIA_TYPE_VIDEO,
-        .config_props       = config_output,
-        .request_frame      = request_frame },
-      { .name = NULL }
-    },
+    .inputs         = alphamerge_inputs,
+    .outputs        = alphamerge_outputs,
 };

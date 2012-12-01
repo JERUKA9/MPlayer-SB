@@ -67,6 +67,7 @@ typedef struct {
     int frame_height;
     double font_size_coeff;     // font size multiplier
     double line_spacing;        // additional line spacing (in frame pixels)
+    double line_position;       // vertical position for subtitles, 0-100 (0 = no change)
     int top_margin;             // height of top margin. Everything except toptitles is shifted down by top_margin.
     int bottom_margin;          // height of bottom margin. (frame_height - top_margin - bottom_margin) is original video height.
     int left_margin;
@@ -133,6 +134,7 @@ typedef struct glyph_info {
     double frx, fry, frz;       // rotation
     double fax, fay;            // text shearing
     double scale_x, scale_y;
+    int border_style;
     double border_x, border_y;
     double hspacing;
     unsigned italic;
@@ -190,6 +192,7 @@ typedef struct {
     char have_origin;           // origin is explicitly defined; if 0, get_base_point() is used
     double scale_x, scale_y;
     double hspacing;            // distance between letters, in pixels
+    int border_style;
     double border_x;            // outline width
     double border_y;
     uint32_t c[4];              // colors(Primary, Secondary, so on) in RGBA
@@ -250,6 +253,7 @@ struct ass_renderer {
 
     ASS_Image *images_root;     // rendering result is stored here
     ASS_Image *prev_images_root;
+    int cache_cleared;
 
     EventImages *eimg;          // temporary buffer for sorting rendered events
     int eimg_size;              // allocated buffer size

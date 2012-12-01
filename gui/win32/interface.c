@@ -77,7 +77,7 @@ int guiWinID = 0;
 
 char *skinName = NULL;
 char *codecname = NULL;
-int uiGotoTheNext = 1;
+int uiProcessNextInPlaylist = 1;
 static gui_t *mygui = NULL;
 static int update_videowindow(void);
 static RECT old_rect;
@@ -364,7 +364,7 @@ static void guiSetEvent(int event)
                 {
                     guiInfo.NewPlay = GUI_FILE_NEW;
                     update_playlistwindow();
-                    uiGotoTheNext = guiInfo.Playing? 0 : 1;
+                    uiProcessNextInPlaylist = guiInfo.Playing? 0 : 1;
                     gui(GUI_SET_STATE, (void *) GUI_STOP);
                     gui(GUI_SET_STATE, (void *) GUI_PLAY);
                     break;
@@ -580,7 +580,6 @@ int gui(int what, void *data)
             vobsub_id = -1;
             stream_cache_size = -1;
             autosync = 0;
-            dvd_title = 0;
             force_fps = 0;
             if(!mygui->playlist->tracks) return 0;
             switch(guiInfo.StreamType)
@@ -593,8 +592,10 @@ int gui(int what, void *data)
                 case STREAMTYPE_DVD:
                 {
                     char tmp[512];
+#ifdef CONFIG_DVDREAD
                     dvd_chapter = guiInfo.Chapter;
                     dvd_angle = guiInfo.Angle;
+#endif
                     sprintf(tmp,"dvd://%d", guiInfo.Track);
                     uiSetFileName(NULL, tmp, SAME_STREAMTYPE);
                     break;
@@ -664,6 +665,12 @@ int gui(int what, void *data)
                     stream_control(stream, STREAM_CTRL_GET_NUM_CHAPTERS, &guiInfo.Chapters);
                     guiInfo.Angles = 0;
                     stream_control(stream, STREAM_CTRL_GET_NUM_ANGLES, &guiInfo.Angles);
+                    guiInfo.Track = 0;
+                    stream_control(stream, STREAM_CTRL_GET_CURRENT_TITLE, &guiInfo.Track);
+                    guiInfo.Track++;
+                    // guiInfo.Chapter will be set by mplayer
+                    guiInfo.Angle = 1;
+                    stream_control(stream, STREAM_CTRL_GET_ANGLE, &guiInfo.Angle);
 #ifdef CONFIG_DVDREAD
                     dvdp = stream->priv;
                     guiInfo.AudioStreams = dvdp->nr_of_channels;
@@ -671,9 +678,6 @@ int gui(int what, void *data)
                     guiInfo.Subtitles = dvdp->nr_of_subtitles;
                     memcpy(guiInfo.Subtitle, dvdp->subtitles, sizeof(dvdp->subtitles));
 #endif
-                    guiInfo.Chapter = dvd_chapter + 1;
-                    guiInfo.Angle = dvd_angle + 1;
-                    guiInfo.Track = dvd_title + 1;
                     break;
             }
             break;
@@ -760,13 +764,15 @@ int gui(int what, void *data)
         }
         case GUI_END_FILE:
         {
-          if(!uiGotoTheNext && guiInfo.Playing)
+          guiInfo.sh_video = NULL;
+
+          if(!uiProcessNextInPlaylist && guiInfo.Playing)
           {
-              uiGotoTheNext = 1;
+              uiProcessNextInPlaylist = 1;
               break;
           }
 
-          if(uiGotoTheNext && guiInfo.Playing &&
+          if(uiProcessNextInPlaylist && guiInfo.Playing &&
             (mygui->playlist->current < (mygui->playlist->trackcount - 1)) &&
             guiInfo.StreamType != STREAMTYPE_DVD &&
             guiInfo.StreamType != STREAMTYPE_DVDNAV)
@@ -775,7 +781,7 @@ int gui(int what, void *data)
               if(movie_aspect >= 0)
                   movie_aspect = -1;
 
-              uiGotoTheNext = 1;
+              uiProcessNextInPlaylist = 1;
               guiInfo.NewPlay = GUI_FILE_NEW;
               uiSetFileName(NULL, mygui->playlist->tracks[(mygui->playlist->current)++]->filename, STREAMTYPE_FILE);
               //sprintf(guiInfo.Filename, mygui->playlist->tracks[(mygui->playlist->current)++]->filename);
@@ -858,7 +864,7 @@ int guiPlaylistInitialize(play_tree_t *my_playtree, m_config_t *config, int enqu
                 result = 1;
         }
     }
-    uiGotoTheNext = 1;
+    uiProcessNextInPlaylist = 1;
 
     if (result)
     {

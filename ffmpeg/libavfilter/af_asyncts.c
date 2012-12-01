@@ -39,7 +39,7 @@ typedef struct ASyncContext {
     float min_delta_sec;
     int max_comp;
 
-    /* set by filter_samples() to signal an output frame to request_frame() */
+    /* set by filter_frame() to signal an output frame to request_frame() */
     int got_output;
 } ASyncContext;
 
@@ -135,7 +135,7 @@ static int request_frame(AVFilterLink *link)
         }
 
         buf->pts = s->pts;
-        return ff_filter_samples(link, buf);
+        return ff_filter_frame(link, buf);
     }
 
     return ret;
@@ -155,7 +155,7 @@ static int64_t get_delay(ASyncContext *s)
     return avresample_available(s->avr) + avresample_get_delay(s->avr);
 }
 
-static int filter_samples(AVFilterLink *inlink, AVFilterBufferRef *buf)
+static int filter_frame(AVFilterLink *inlink, AVFilterBufferRef *buf)
 {
     AVFilterContext  *ctx = inlink->dst;
     ASyncContext       *s = ctx->priv;
@@ -211,7 +211,7 @@ static int filter_samples(AVFilterLink *inlink, AVFilterBufferRef *buf)
             av_samples_set_silence(buf_out->extended_data, out_size - delta,
                                    delta, nb_channels, buf->format);
         }
-        ret = ff_filter_samples(outlink, buf_out);
+        ret = ff_filter_frame(outlink, buf_out);
         if (ret < 0)
             goto fail;
         s->got_output = 1;
@@ -233,6 +233,25 @@ fail:
     return ret;
 }
 
+static const AVFilterPad avfilter_af_asyncts_inputs[] = {
+    {
+        .name           = "default",
+        .type           = AVMEDIA_TYPE_AUDIO,
+        .filter_frame   = filter_frame
+    },
+    { NULL }
+};
+
+static const AVFilterPad avfilter_af_asyncts_outputs[] = {
+    {
+        .name          = "default",
+        .type          = AVMEDIA_TYPE_AUDIO,
+        .config_props  = config_props,
+        .request_frame = request_frame
+    },
+    { NULL }
+};
+
 AVFilter avfilter_af_asyncts = {
     .name        = "asyncts",
     .description = NULL_IF_CONFIG_SMALL("Sync audio data to timestamps"),
@@ -242,14 +261,7 @@ AVFilter avfilter_af_asyncts = {
 
     .priv_size   = sizeof(ASyncContext),
 
-    .inputs      = (const AVFilterPad[]) {{ .name           = "default",
-                                            .type           = AVMEDIA_TYPE_AUDIO,
-                                            .filter_samples = filter_samples },
-                                          { NULL }},
-    .outputs     = (const AVFilterPad[]) {{ .name           = "default",
-                                            .type           = AVMEDIA_TYPE_AUDIO,
-                                            .config_props   = config_props,
-                                            .request_frame  = request_frame },
-                                          { NULL }},
+    .inputs      = avfilter_af_asyncts_inputs,
+    .outputs     = avfilter_af_asyncts_outputs,
     .priv_class = &asyncts_class,
 };

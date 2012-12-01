@@ -332,6 +332,10 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     src += 2;
     chunks = AV_RB16(src); src += 2;
     while(chunks--) {
+        if(buf_size - (src - buf) < 12) {
+            av_log(avctx, AV_LOG_ERROR, "Premature end of data!\n");
+            return -1;
+        }
         dx = AV_RB16(src); src += 2;
         dy = AV_RB16(src); src += 2;
         w  = AV_RB16(src); src += 2;
@@ -475,13 +479,13 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
     switch(c->bpp){
     case 8:
-        avctx->pix_fmt = PIX_FMT_PAL8;
+        avctx->pix_fmt = AV_PIX_FMT_PAL8;
         break;
     case 16:
-        avctx->pix_fmt = PIX_FMT_RGB555;
+        avctx->pix_fmt = AV_PIX_FMT_RGB555;
         break;
     case 32:
-        avctx->pix_fmt = PIX_FMT_RGB32;
+        avctx->pix_fmt = AV_PIX_FMT_RGB32;
         break;
     default:
         av_log(avctx, AV_LOG_ERROR, "Unsupported bitdepth %i\n", c->bpp);

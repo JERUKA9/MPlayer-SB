@@ -69,6 +69,7 @@ static const struct AVCodecTag mp_wav_tags[] = {
     { CODEC_ID_ROQ_DPCM,          MKTAG('R', 'o', 'Q', 'A')},
     { CODEC_ID_SHORTEN,           MKTAG('s', 'h', 'r', 'n')},
     { CODEC_ID_SPEEX,             MKTAG('s', 'p', 'x', ' ')},
+    { AV_CODEC_ID_TAK,            MKTAG('T', 'A', 'K', ' ')},
     { CODEC_ID_TTA,               MKTAG('T', 'T', 'A', '1')},
     { CODEC_ID_TWINVQ,            MKTAG('T', 'W', 'I', '2')},
 #if LIBAVUTIL_VERSION_MICRO >= 100
@@ -169,6 +170,7 @@ static const struct AVCodecTag mp_bmp_tags[] = {
     { CODEC_ID_VMDVIDEO,          MKTAG('V', 'M', 'D', 'V')},
     { CODEC_ID_WS_VQA,            MKTAG('V', 'Q', 'A', 'V')},
     { CODEC_ID_XAN_WC3,           MKTAG('W', 'C', '3', 'V')},
+    { CODEC_ID_YOP,               MKTAG('Y', 'O', 'P', '1')},
     { 0, 0 },
 };
 

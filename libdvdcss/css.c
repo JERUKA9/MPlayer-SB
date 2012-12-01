@@ -2,7 +2,7 @@
  * css.c: Functions for DVD authentication and descrambling
  *****************************************************************************
  * Copyright (C) 1999-2008 VideoLAN
- * $Id: css.c 31884 2010-08-01 13:53:04Z reimar $
+ * $Id: css.c 35361 2012-11-06 18:17:04Z reimar $
  *
  * Authors: Stéphane Borel <stef@via.ecp.fr>
  *          Håkan Hjort <d95hjort@dtek.chalmers.se>
@@ -1152,8 +1152,7 @@ static int CrackDiscKey( dvdcss_t dvdcss, uint8_t *p_disc_key )
      */
 
     /* initialize lookup tables for k[1] */
-    K1table = malloc( 65536 * K1TABLEWIDTH );
-    memset( K1table, 0 , 65536 * K1TABLEWIDTH );
+    K1table = calloc( 65536, K1TABLEWIDTH );
     if( K1table == NULL )
     {
         return -1;
@@ -1184,8 +1183,7 @@ static int CrackDiscKey( dvdcss_t dvdcss, uint8_t *p_disc_key )
     }
 
     /* Initing our Really big table */
-    BigTable = malloc( 16777216 * sizeof(int) );
-    memset( BigTable, 0 , 16777216 * sizeof(int) );
+    BigTable = calloc( 16777216, sizeof(int) );
     if( BigTable == NULL )
     {
         free( K1table );

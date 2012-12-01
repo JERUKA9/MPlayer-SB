@@ -57,6 +57,7 @@ static const IdStrMap img_tags[] = {
     { AV_CODEC_ID_SGI       , "sgi"},
     { AV_CODEC_ID_PTX       , "ptx"},
     { AV_CODEC_ID_PCX       , "pcx"},
+    { AV_CODEC_ID_BRENDER_PIX, "pix"},
     { AV_CODEC_ID_SUNRAST   , "sun"},
     { AV_CODEC_ID_SUNRAST   , "ras"},
     { AV_CODEC_ID_SUNRAST   , "rs"},
@@ -74,6 +75,7 @@ static const IdStrMap img_tags[] = {
     { AV_CODEC_ID_PICTOR    , "pic"},
     { AV_CODEC_ID_V210X     , "yuv10"},
     { AV_CODEC_ID_XBM       , "xbm"},
+    { AV_CODEC_ID_XFACE     , "xface"},
     { AV_CODEC_ID_XWD       , "xwd"},
     { AV_CODEC_ID_NONE      , NULL}
 };

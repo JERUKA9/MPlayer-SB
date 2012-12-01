@@ -67,6 +67,7 @@ static int gif_read_image(GifState *s)
     int left, top, width, height, bits_per_pixel, code_size, flags;
     int is_interleaved, has_local_palette, y, pass, y1, linesize, n, i;
     uint8_t *ptr, *spal, *palette, *ptr1;
+    int ret;
 
     left = bytestream_get_le16(&s->bytestream);
     top = bytestream_get_le16(&s->bytestream);
@@ -107,8 +108,11 @@ static int gif_read_image(GifState *s)
 
     /* now get the image data */
     code_size = bytestream_get_byte(&s->bytestream);
-    ff_lzw_decode_init(s->lzw, code_size, s->bytestream,
-                       s->bytestream_end - s->bytestream, FF_LZW_GIF);
+    if ((ret = ff_lzw_decode_init(s->lzw, code_size, s->bytestream,
+                       s->bytestream_end - s->bytestream, FF_LZW_GIF)) < 0) {
+        av_log(s->avctx, AV_LOG_ERROR, "LZW init failed\n");
+        return ret;
+    }
 
     /* read all the image */
     linesize = s->picture.linesize[0];
@@ -294,7 +298,7 @@ static int gif_decode_frame(AVCodecContext *avctx, void *data, int *data_size, A
     if ((ret = gif_read_header1(s)) < 0)
         return ret;
 
-    avctx->pix_fmt = PIX_FMT_PAL8;
+    avctx->pix_fmt = AV_PIX_FMT_PAL8;
     if (av_image_check_size(s->screen_width, s->screen_height, 0, avctx))
         return -1;
     avcodec_set_dimensions(avctx, s->screen_width, s->screen_height);

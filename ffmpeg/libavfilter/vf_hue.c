@@ -236,12 +236,12 @@ static av_cold void uninit(AVFilterContext *ctx)
 
 static int query_formats(AVFilterContext *ctx)
 {
-    static const enum PixelFormat pix_fmts[] = {
-        PIX_FMT_YUV444P,      PIX_FMT_YUV422P,
-        PIX_FMT_YUV420P,      PIX_FMT_YUV411P,
-        PIX_FMT_YUV410P,      PIX_FMT_YUV440P,
-        PIX_FMT_YUVA420P,
-        PIX_FMT_NONE
+    static const enum AVPixelFormat pix_fmts[] = {
+        AV_PIX_FMT_YUV444P,      AV_PIX_FMT_YUV422P,
+        AV_PIX_FMT_YUV420P,      AV_PIX_FMT_YUV411P,
+        AV_PIX_FMT_YUV410P,      AV_PIX_FMT_YUV440P,
+        AV_PIX_FMT_YUVA420P,
+        AV_PIX_FMT_NONE
     };
 
     ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
@@ -252,7 +252,7 @@ static int query_formats(AVFilterContext *ctx)
 static int config_props(AVFilterLink *inlink)
 {
     HueContext *hue = inlink->dst->priv;
-    const AVPixFmtDescriptor *desc = &av_pix_fmt_descriptors[inlink->format];
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(inlink->format);
 
     hue->hsub = desc->log2_chroma_w;
     hue->vsub = desc->log2_chroma_h;
@@ -396,6 +396,26 @@ static int process_command(AVFilterContext *ctx, const char *cmd, const char *ar
         return AVERROR(ENOSYS);
 }
 
+static const AVFilterPad hue_inputs[] = {
+    {
+        .name         = "default",
+        .type         = AVMEDIA_TYPE_VIDEO,
+        .start_frame  = start_frame,
+        .draw_slice   = draw_slice,
+        .config_props = config_props,
+        .min_perms    = AV_PERM_READ,
+    },
+    { NULL }
+};
+
+static const AVFilterPad hue_outputs[] = {
+    {
+        .name = "default",
+        .type = AVMEDIA_TYPE_VIDEO,
+    },
+    { NULL }
+};
+
 AVFilter avfilter_vf_hue = {
     .name        = "hue",
     .description = NULL_IF_CONFIG_SMALL("Adjust the hue and saturation of the input video."),
@@ -406,24 +426,7 @@ AVFilter avfilter_vf_hue = {
     .uninit        = uninit,
     .query_formats = query_formats,
     .process_command = process_command,
-
-    .inputs = (const AVFilterPad[]) {
-        {
-            .name         = "default",
-            .type         = AVMEDIA_TYPE_VIDEO,
-            .start_frame  = start_frame,
-            .draw_slice   = draw_slice,
-            .config_props = config_props,
-            .min_perms    = AV_PERM_READ,
-        },
-        { .name = NULL }
-    },
-    .outputs = (const AVFilterPad[]) {
-        {
-            .name         = "default",
-            .type         = AVMEDIA_TYPE_VIDEO,
-        },
-        { .name = NULL }
-    },
-    .priv_class = &hue_class,
+    .inputs          = hue_inputs,
+    .outputs         = hue_outputs,
+    .priv_class      = &hue_class,
 };
