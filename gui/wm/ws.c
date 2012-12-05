@@ -100,15 +100,15 @@ int wsBlueMask       = 0;
 int wsOutMask        = 0;
 int wsNonNativeOrder = 0;
 
-int wsTrue = True;
+Bool wsTrue = True;
 
 #define wsWLCount 5
 wsTWindow *wsWindowList[wsWLCount] = { NULL, NULL, NULL, NULL, NULL };
 
 unsigned long wsKeyTable[512];
 
-int wsUseXShm   = 1;
-int wsUseXShape = 1;
+int wsUseXShm   = True;
+int wsUseXShape = True;
 
 static int wsSearch(Window win)
 {
@@ -168,7 +168,7 @@ enum PixelFormat out_pix_fmt = PIX_FMT_NONE;
 
 #define MWM_TEAROFF_WINDOW      (1L << 0)
 
-void wsWindowDecoration(wsTWindow *win, long d)
+void wsWindowDecoration(wsTWindow *win, Bool decor)
 {
     wsMotifHints = XInternAtom(wsDisplay, "_MOTIF_WM_HINTS", 0);
 
@@ -178,7 +178,7 @@ void wsWindowDecoration(wsTWindow *win, long d)
     memset(&wsMotifWmHints, 0, sizeof(MotifWmHints));
     wsMotifWmHints.flags = MWM_HINTS_FUNCTIONS | MWM_HINTS_DECORATIONS;
 
-    if (d) {
+    if (decor) {
         wsMotifWmHints.functions   = MWM_FUNC_MOVE | MWM_FUNC_CLOSE | MWM_FUNC_MINIMIZE | MWM_FUNC_MAXIMIZE | MWM_FUNC_RESIZE;
         wsMotifWmHints.decorations = MWM_DECOR_ALL;
     }
@@ -259,7 +259,7 @@ void wsXInit(Display *mDisplay)
 
         if (dispname && *dispname != ':') {
             localdisp = 0;
-            wsUseXShm = 0;
+            wsUseXShm = False;
         }
 
         mp_msg(MSGT_GPLAYER, MSGL_DBG2, "[ws] display name: %s => %s display.\n", dispname, localdisp ? "local" : "REMOTE");
@@ -271,7 +271,7 @@ void wsXInit(Display *mDisplay)
 #ifdef HAVE_SHM
     if (!XShmQueryExtension(wsDisplay))
 #endif
-    wsUseXShm = 0;
+    wsUseXShm = False;
 
     if (!wsUseXShm)
         mp_msg(MSGT_GPLAYER, MSGL_INFO, MSGTR_WS_NoXshm);
@@ -279,7 +279,7 @@ void wsXInit(Display *mDisplay)
 #ifdef CONFIG_XSHAPE
     if (!XShapeQueryExtension(wsDisplay, &eventbase, &errorbase))
 #endif
-    wsUseXShape = 0;
+    wsUseXShape = False;
 
     if (!wsUseXShape)
         mp_msg(MSGT_GPLAYER, MSGL_WARN, MSGTR_WS_NoXshape);
@@ -439,7 +439,7 @@ void wsCreateWindow(wsTWindow *win, int X, int Y, int wX, int hY, int bW, int cV
     win->Property = D;
 
     if (D & wsShowFrame)
-        win->Decorations = 1;
+        win->Decorations = True;
 
     wsHGC = DefaultGC(wsDisplay, wsScreen);
 
@@ -573,10 +573,10 @@ void wsCreateWindow(wsTWindow *win, int X, int Y, int wX, int hY, int bW, int cV
                          GCForeground | GCBackground,
                          &win->wGCV);
 
-    win->Visible = 0;
-    win->Focused = 0;
-    win->Mapped  = 0;
-    win->Rolled  = 0;
+    win->Visible = wsNo;
+    win->Focused = wsNo;
+    win->Mapped  = wsNo;
+    win->Rolled  = wsNo;
 
     if (D & wsShowWindow)
         XMapWindow(wsDisplay, win->WindowID);
@@ -634,10 +634,10 @@ void wsDestroyWindow(wsTWindow *win)
     win->Idle         = NULL;
     win->MouseHandler = NULL;
     win->KeyHandler   = NULL;
-    win->Visible      = 0;
-    win->Focused      = 0;
-    win->Mapped       = 0;
-    win->Rolled       = 0;
+    win->Visible      = wsNo;
+    win->Focused      = wsNo;
+    win->Mapped       = wsNo;
+    win->Rolled       = wsNo;
 #endif
 }
 
@@ -668,7 +668,7 @@ Bool wsEvents(Display *display, XEvent *Event)
     if (l == -1)
         return !wsTrue;
 
-    wsWindowList[l]->State = 0;
+    wsWindowList[l]->State = wsNone;
 
     switch (Event->type) {
     case ClientMessage:
@@ -702,7 +702,7 @@ Bool wsEvents(Display *display, XEvent *Event)
 
     case UnmapNotify:
         i = wsWindowUnmapped;
-        wsWindowList[l]->Mapped = wsNone;
+        wsWindowList[l]->Mapped = wsNo;
         goto expose;
 
     case FocusIn:
@@ -716,11 +716,11 @@ Bool wsEvents(Display *display, XEvent *Event)
 
     case FocusOut:
 
-        if (wsWindowList[l]->Focused == wsNone)
+        if (wsWindowList[l]->Focused == wsNo)
             break;
 
         i = wsWindowFocusOut;
-        wsWindowList[l]->Focused = wsNone;
+        wsWindowList[l]->Focused = wsNo;
         goto expose;
 
     case VisibilityNotify:
@@ -771,7 +771,7 @@ expose:
                 wsWindowList[l]->ReSize(wsWindowList[l]->X, wsWindowList[l]->Y, wsWindowList[l]->Width, wsWindowList[l]->Height);
         }
 
-        wsWindowList[l]->Rolled = wsNone;
+        wsWindowList[l]->Rolled = wsNo;
 
         if (Event->xconfigure.y < 0) {
             i = wsWindowRolled;
@@ -788,26 +788,26 @@ expose:
     case KeyRelease:
         i = wsKeyReleased;
 keypressed:
-        wsWindowList[l]->Alt      = 0;
-        wsWindowList[l]->Shift    = 0;
-        wsWindowList[l]->NumLock  = 0;
-        wsWindowList[l]->Control  = 0;
-        wsWindowList[l]->CapsLock = 0;
+        wsWindowList[l]->Alt      = False;
+        wsWindowList[l]->Shift    = False;
+        wsWindowList[l]->NumLock  = False;
+        wsWindowList[l]->Control  = False;
+        wsWindowList[l]->CapsLock = False;
 
         if (Event->xkey.state & Mod1Mask)
-            wsWindowList[l]->Alt = 1;
+            wsWindowList[l]->Alt = True;
 
         if (Event->xkey.state & Mod2Mask)
-            wsWindowList[l]->NumLock = 1;
+            wsWindowList[l]->NumLock = True;
 
         if (Event->xkey.state & ControlMask)
-            wsWindowList[l]->Control = 1;
+            wsWindowList[l]->Control = True;
 
         if (Event->xkey.state & ShiftMask)
-            wsWindowList[l]->Shift = 1;
+            wsWindowList[l]->Shift = True;
 
         if (Event->xkey.state & LockMask)
-            wsWindowList[l]->CapsLock = 1;
+            wsWindowList[l]->CapsLock = True;
 
 #if 0
         {
@@ -1436,7 +1436,7 @@ void wsCreateImage(wsTWindow *win, int Width, int Height)
         }
 
         win->xImage->data     = win->Shminfo.shmaddr;
-        win->Shminfo.readOnly = 0;
+        win->Shminfo.readOnly = False;
         XShmAttach(wsDisplay, &win->Shminfo);
         XSync(wsDisplay, False);
         shmctl(win->Shminfo.shmid, IPC_RMID, 0);

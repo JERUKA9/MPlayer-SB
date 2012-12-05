@@ -1231,6 +1231,15 @@ ARCH_LIST='
     x86_64
 '
 
+ARCH_EXT_LIST_ARM='
+    armv5te
+    armv6
+    armv6t2
+    armvfp
+    neon
+    vfpv3
+'
+
 ARCH_EXT_LIST_X86='
     amd3dnow
     amd3dnowext
@@ -1247,15 +1256,10 @@ ARCH_EXT_LIST_X86='
 '
 
 ARCH_EXT_LIST="
+    $ARCH_EXT_LIST_ARM
     $ARCH_EXT_LIST_X86
     altivec
-    armv5te
-    armv6
-    armv6t2
-    armvfp
-    neon
     ppc4xx
-    vfpv3
     vis
     mipsfpu
     mips32r2
@@ -1324,6 +1328,7 @@ HAVE_LIST="
     clock_gettime
     closesocket
     cmov
+    CommandLineToArgvW
     cpunop
     CryptGenRandom
     dcbzl
@@ -1392,6 +1397,7 @@ HAVE_LIST="
     sched_getaffinity
     sdl
     sdl_video_size
+    SetConsoleTextAttribute
     setmode
     setrlimit
     Sleep
@@ -1838,6 +1844,7 @@ eac3_demuxer_select="ac3_parser"
 f4v_muxer_select="mov_muxer"
 flac_demuxer_select="flac_parser"
 ipod_muxer_select="mov_muxer"
+ismv_muxer_select="mov_muxer"
 libnut_demuxer_deps="libnut"
 libnut_muxer_deps="libnut"
 matroska_audio_muxer_select="matroska_muxer"
@@ -1963,6 +1970,7 @@ removelogo_filter_deps="avcodec avformat swscale"
 scale_filter_deps="swscale"
 smartblur_filter_deps="gpl swscale"
 showspectrum_filter_deps="avcodec rdft"
+subtitles_filter_deps="avformat avcodec libass"
 super2xsai_filter_deps="gpl"
 tinterlace_filter_deps="gpl"
 yadif_filter_deps="gpl"
@@ -2200,70 +2208,70 @@ do_random(){
 for opt do
     optval="${opt#*=}"
     case "$opt" in
-    --extra-ldflags=*) add_ldflags $optval
-    ;;
-    --extra-libs=*) add_extralibs $optval
-    ;;
-    --disable-devices) disable $INDEV_LIST $OUTDEV_LIST
-    ;;
-    --enable-debug=*) debuglevel="$optval"
-    ;;
-    --disable-programs)
-    disable $PROGRAM_LIST
-    ;;
-    --disable-everything)
-    map 'eval unset \${$(toupper ${v%s})_LIST}' $COMPONENT_LIST
-    ;;
-    --enable-random|--disable-random)
-    action=${opt%%-random}
-    do_random ${action#--} $COMPONENT_LIST
-    ;;
-    --enable-random=*|--disable-random=*)
-    action=${opt%%-random=*}
-    do_random ${action#--} $optval
-    ;;
-    --enable-*=*|--disable-*=*)
-    eval $(echo "${opt%%=*}" | sed 's/--/action=/;s/-/ thing=/')
-    is_in "${thing}s" $COMPONENT_LIST || die_unknown "$opt"
-    eval list=\$$(toupper $thing)_LIST
-    name=$(echo "${optval}" | sed "s/,/_${thing}|/g")_${thing}
-    list=$(filter "$name" $list)
-    [ "$list" = "" ] && warn "Option $opt did not match anything"
-    $action $list
-    ;;
-    --enable-?*|--disable-?*)
-    eval $(echo "$opt" | sed 's/--/action=/;s/-/ option=/;s/-/_/g')
-    if is_in $option $COMPONENT_LIST; then
-        test $action = disable && action=unset
-        eval $action \$$(toupper ${option%s})_LIST
-    elif is_in $option $CMDLINE_SELECT; then
-        $action $option
-    else
-        die_unknown $opt
-    fi
-    ;;
-    --list-*)
-        NAME="${opt#--list-}"
-        is_in $NAME $COMPONENT_LIST || die_unknown $opt
-        NAME=${NAME%s}
-        eval show_list $NAME \$$(toupper $NAME)_LIST
-    ;;
-    --help|-h) show_help
-    ;;
-    --fatal-warnings) enable fatal_warnings
-    ;;
-    *)
-    optname="${opt%%=*}"
-    optname="${optname#--}"
-    optname=$(echo "$optname" | sed 's/-/_/g')
-    if is_in $optname $CMDLINE_SET; then
-        eval $optname='$optval'
-    elif is_in $optname $CMDLINE_APPEND; then
-        append $optname "$optval"
-    else
-         die_unknown $opt
-    fi
-    ;;
+        --extra-ldflags=*) add_ldflags $optval
+        ;;
+        --extra-libs=*) add_extralibs $optval
+        ;;
+        --disable-devices) disable $INDEV_LIST $OUTDEV_LIST
+        ;;
+        --enable-debug=*) debuglevel="$optval"
+        ;;
+        --disable-programs)
+            disable $PROGRAM_LIST
+        ;;
+        --disable-everything)
+            map 'eval unset \${$(toupper ${v%s})_LIST}' $COMPONENT_LIST
+        ;;
+        --enable-random|--disable-random)
+            action=${opt%%-random}
+            do_random ${action#--} $COMPONENT_LIST
+        ;;
+        --enable-random=*|--disable-random=*)
+            action=${opt%%-random=*}
+            do_random ${action#--} $optval
+        ;;
+        --enable-*=*|--disable-*=*)
+            eval $(echo "${opt%%=*}" | sed 's/--/action=/;s/-/ thing=/')
+            is_in "${thing}s" $COMPONENT_LIST || die_unknown "$opt"
+            eval list=\$$(toupper $thing)_LIST
+            name=$(echo "${optval}" | sed "s/,/_${thing}|/g")_${thing}
+            list=$(filter "$name" $list)
+            [ "$list" = "" ] && warn "Option $opt did not match anything"
+            $action $list
+        ;;
+        --enable-?*|--disable-?*)
+            eval $(echo "$opt" | sed 's/--/action=/;s/-/ option=/;s/-/_/g')
+            if is_in $option $COMPONENT_LIST; then
+                test $action = disable && action=unset
+                eval $action \$$(toupper ${option%s})_LIST
+            elif is_in $option $CMDLINE_SELECT; then
+                $action $option
+            else
+                die_unknown $opt
+            fi
+        ;;
+        --list-*)
+            NAME="${opt#--list-}"
+            is_in $NAME $COMPONENT_LIST || die_unknown $opt
+            NAME=${NAME%s}
+            eval show_list $NAME \$$(toupper $NAME)_LIST
+        ;;
+        --help|-h) show_help
+        ;;
+        --fatal-warnings) enable fatal_warnings
+        ;;
+        *)
+            optname="${opt%%=*}"
+            optname="${optname#--}"
+            optname=$(echo "$optname" | sed 's/-/_/g')
+            if is_in $optname $CMDLINE_SET; then
+                eval $optname='$optval'
+            elif is_in $optname $CMDLINE_APPEND; then
+                append $optname "$optval"
+            else
+                die_unknown $opt
+            fi
+        ;;
     esac
 done
 
@@ -3026,6 +3034,7 @@ case "$arch" in
     ;;
     ppc)
         check_64bit ppc ppc64 'sizeof(void *) > 4'
+        spic=$shared
     ;;
     sparc)
         check_64bit sparc sparc64 'sizeof(void *) > 4'
@@ -3132,18 +3141,18 @@ case $target_os in
         SLIBNAME_WITH_MAJOR='$(SLIBPREF)$(FULLNAME)-$(LIBMAJOR)$(SLIBSUF)'
         dlltool="${cross_prefix}dlltool"
         if check_cmd lib.exe -list; then
-            SLIB_EXTRA_CMD='-lib.exe /machine:$(LIBTARGET) /def:$$(@:$(SLIBSUF)=.def) /out:$(SUBDIR)$(SLIBNAME:$(SLIBSUF)=.lib)'
+            SLIB_EXTRA_CMD=-'sed -e "s/ @[^ ]*//" $$(@:$(SLIBSUF)=.orig.def) > $$(@:$(SLIBSUF)=.def); lib.exe /machine:$(LIBTARGET) /def:$$(@:$(SLIBSUF)=.def) /out:$(SUBDIR)$(SLIBNAME:$(SLIBSUF)=.lib)'
             if enabled x86_64; then
                 LIBTARGET=x64
             fi
         elif check_cmd $dlltool --version; then
-            SLIB_EXTRA_CMD=-'$(DLLTOOL) -m $(LIBTARGET) -d $$(@:$(SLIBSUF)=.def) -l $(SUBDIR)$(SLIBNAME:$(SLIBSUF)=.lib) -D $(SLIBNAME_WITH_MAJOR)'
+            SLIB_EXTRA_CMD=-'sed -e "s/ @[^ ]*//" $$(@:$(SLIBSUF)=.orig.def) > $$(@:$(SLIBSUF)=.def); $(DLLTOOL) -m $(LIBTARGET) -d $$(@:$(SLIBSUF)=.def) -l $(SUBDIR)$(SLIBNAME:$(SLIBSUF)=.lib) -D $(SLIBNAME_WITH_MAJOR)'
         fi
         SLIB_INSTALL_NAME='$(SLIBNAME_WITH_MAJOR)'
         SLIB_INSTALL_LINKS=
         SLIB_INSTALL_EXTRA_SHLIB='$(SLIBNAME:$(SLIBSUF)=.lib)'
         SLIB_INSTALL_EXTRA_LIB='lib$(SLIBNAME:$(SLIBSUF)=.dll.a) $(SLIBNAME_WITH_MAJOR:$(SLIBSUF)=.def)'
-        SHFLAGS='-shared -Wl,--output-def,$$(@:$(SLIBSUF)=.def) -Wl,--out-implib,$(SUBDIR)lib$(SLIBNAME:$(SLIBSUF)=.dll.a) -Wl,--enable-runtime-pseudo-reloc -Wl,--enable-auto-image-base'
+        SHFLAGS='-shared -Wl,--output-def,$$(@:$(SLIBSUF)=.orig.def) -Wl,--out-implib,$(SUBDIR)lib$(SLIBNAME:$(SLIBSUF)=.dll.a) -Wl,--enable-runtime-pseudo-reloc -Wl,--enable-auto-image-base'
         objformat="win32"
         ranlib=:
         enable dos_paths
@@ -3416,6 +3425,10 @@ if enabled alpha; then
 
 elif enabled arm; then
 
+    check_cpp_condition stddef.h "defined __thumb__" && check_cc <<EOF && enable_weak thumb
+float func(float a, float b){ return a+b; }
+EOF
+
     enabled thumb && check_cflags -mthumb || check_cflags -marm
     nogas=die
 
@@ -3647,6 +3660,7 @@ check_func_headers windows.h GetProcessAffinityMask
 check_func_headers windows.h GetProcessTimes
 check_func_headers windows.h GetSystemTimeAsFileTime
 check_func_headers windows.h MapViewOfFile
+check_func_headers windows.h SetConsoleTextAttribute
 check_func_headers windows.h Sleep
 check_func_headers windows.h VirtualAlloc
 check_func_headers glob.h glob
@@ -3684,7 +3698,7 @@ if ! disabled vda && ! enabled ppc; then
 fi
 
 if ! disabled w32threads && ! enabled pthreads; then
-    check_func _beginthreadex && enable w32threads
+    check_func_headers "windows.h process.h" _beginthreadex && enable w32threads
 fi
 
 # check for some common methods of building with pthread support
@@ -4481,6 +4495,7 @@ EOF
 libavfilter_pc_deps="libavutil = $LIBAVUTIL_VERSION"
 enabled libavfilter_deps_avcodec    && prepend libavfilter_pc_deps "libavcodec = $LIBAVCODEC_VERSION,"
 enabled libavfilter_deps_avformat   && prepend libavfilter_pc_deps "libavformat = $LIBAVFORMAT_VERSION,"
+enabled libavfilter_deps_avresample && prepend libavfilter_pc_deps "libavresample = $LIBAVRESAMPLE_VERSION,"
 enabled libavfilter_deps_swscale    && prepend libavfilter_pc_deps "libswscale = $LIBSWSCALE_VERSION,"
 enabled libavfilter_deps_swresample && prepend libavfilter_pc_deps "libswresample = $LIBSWRESAMPLE_VERSION,"
 enabled libavfilter_deps_postproc   && prepend libavfilter_pc_deps "libpostproc = $LIBPOSTPROC_VERSION,"

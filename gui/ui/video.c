@@ -20,17 +20,17 @@
 
 #include <string.h>
 
-#include "config.h"
 #include "libvo/x11_common.h"
 #include "help_mp.h"
 #include "mp_core.h"
 
 #include "gmplayer.h"
 #include "gui/app.h"
+#include "gui/gui.h"
 #include "gui/interface.h"
 #include "widgets.h"
 
-int             uiVideoRender = 0;
+int             uiVideoRender = False;
 int             videoVisible = 0;
 
 void uiVideoDraw( void )
@@ -43,7 +43,7 @@ void uiVideoDraw( void )
  if ( !guiApp.videoWindow.Mapped ||
       guiApp.videoWindow.Visible == wsWindowNotVisible ) return;
 
- if ( guiInfo.Playing ) uiVideoRender=0;
+ if ( guiInfo.Playing ) uiVideoRender=False;
 
  if ( uiVideoRender && guiApp.videoWindow.State == wsWindowExpose )
   {

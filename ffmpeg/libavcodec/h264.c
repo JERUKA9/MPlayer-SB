@@ -2709,6 +2709,11 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
             s->picture_structure = last_pic_structure;
             s->dropable          = last_pic_dropable;
             return AVERROR_INVALIDDATA;
+        } else if (!s->current_picture_ptr) {
+            av_log(s->avctx, AV_LOG_ERROR,
+                   "unset current_picture_ptr on %d. slice\n",
+                   h0->current_slice + 1);
+            return AVERROR_INVALIDDATA;
         }
     } else {
         /* Shorten frame num gaps so we don't have to allocate reference
@@ -3989,6 +3994,7 @@ again:
                 if (hx->redundant_pic_count == 0 &&
                     hx->intra_gb_ptr &&
                     hx->s.data_partitioning &&
+                    s->current_picture_ptr &&
                     s->context_initialized &&
                     (avctx->skip_frame < AVDISCARD_NONREF || hx->nal_ref_idc) &&
                     (avctx->skip_frame < AVDISCARD_BIDIR  ||
@@ -4009,6 +4015,8 @@ again:
                            "SPS decoding failure, trying again with the complete NAL\n");
                     if (h->is_avc)
                         av_assert0(next_avc - buf_index + consumed == nalsize);
+                    if ((next_avc - buf_index + consumed - 1) >= INT_MAX/8)
+                        break;
                     init_get_bits(&s->gb, &buf[buf_index + 1 - consumed],
                                   8*(next_avc - buf_index + consumed - 1));
                     ff_h264_decode_seq_parameter_set(h);

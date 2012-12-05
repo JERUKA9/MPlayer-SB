@@ -19,7 +19,6 @@
 #ifndef MPLAYER_GUI_INTERFACE_H
 #define MPLAYER_GUI_INTERFACE_H
 
-#include "config.h"
 #include "libaf/af.h"
 #include "libmpdemux/stheader.h"
 #include "m_config.h"
@@ -99,6 +98,8 @@ typedef struct {
     int VideoWidth;
     int VideoHeight;
 
+    char *CodecName;
+
     int StreamType;
     int AudioChannels;
 
@@ -129,6 +130,7 @@ typedef struct {
     float Balance;
 
     int NewPlay;              // public, read access by MPlayer
+    int PlaylistNext;
 } guiInterface_t;
 
 extern guiInterface_t guiInfo;

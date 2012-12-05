@@ -19,12 +19,6 @@
 #ifndef MPLAYER_GUI_ACTIONS_H
 #define MPLAYER_GUI_ACTIONS_H
 
-#include "stream/stream.h"
-
-#define SAME_STREAMTYPE (STREAMTYPE_DUMMY - 1)
-
-extern int uiProcessNextInPlaylist;
-
 void uiAbsSeek(float sec);
 void uiChangeSkin(char *name);
 void uiCurr(void);
@@ -34,7 +28,8 @@ void uiPause(void);
 void uiPlay(void);
 void uiPrev(void);
 void uiRelSeek(float percent);
-void uiSetFileName(char *dir, char *name, int type);
+void uiSetFile(char *dir, char *name, int type);
 void uiState(void);
+void uiUnsetFile(void);
 
 #endif /* MPLAYER_GUI_ACTIONS_H */

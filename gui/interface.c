@@ -23,6 +23,7 @@
 
 #include "interface.h"
 #include "app.h"
+#include "gui.h"
 #include "skin/skin.h"
 #include "ui/gmplayer.h"
 #include "ui/widgets.h"
@@ -33,6 +34,7 @@
 #include "wm/wsxdnd.h"
 
 #include "access_mpcontext.h"
+#include "codec-cfg.h"
 #include "config.h"
 #include "help_mp.h"
 #include "input/input.h"
@@ -57,8 +59,9 @@
 #endif
 
 guiInterface_t guiInfo = {
-    .StreamType = STREAMTYPE_DUMMY,
-    .Balance    = 50.0f
+    .StreamType   = STREAMTYPE_DUMMY,
+    .Balance      = 50.0f,
+    .PlaylistNext = True
 };
 
 static int initialized;
@@ -80,13 +83,13 @@ void guiInit(void)
         gtkDXR3Device = strdup("/dev/em8300-0");
 
     if (stream_cache_size > 0) {
-        gtkCacheOn   = 1;
+        gtkCacheOn   = True;
         gtkCacheSize = stream_cache_size;
     } else if (stream_cache_size == 0)
-        gtkCacheOn = 0;
+        gtkCacheOn = False;
 
     if (autosync && (autosync != gtkAutoSync)) {
-        gtkAutoSyncOn = 1;
+        gtkAutoSyncOn = True;
         gtkAutoSync   = autosync;
     }
 
@@ -204,7 +207,7 @@ void guiInit(void)
     wsSetIcon(wsDisplay, guiApp.videoWindow.WindowID, &guiIcon);
 
     if (!guiApp.mainDecoration)
-        wsWindowDecoration(&guiApp.mainWindow, 0);
+        wsWindowDecoration(&guiApp.mainWindow, False);
 
     wsVisibleWindow(&guiApp.mainWindow, wsShowWindow);
 
@@ -232,13 +235,15 @@ void guiInit(void)
 
     guiInfo.Playing = GUI_STOP;
 
-    uiVideoRender = 1;
+    uiVideoRender = True;
 
     playlist = listMgr(PLAYLIST_ITEM_GET_CURR, 0);
 
     if (playlist && !filename) {
-        uiSetFileName(playlist->path, playlist->name, STREAMTYPE_FILE);
-        filename = NULL; // don't start playing
+        uiSetFile(playlist->path, playlist->name, STREAMTYPE_FILE);
+        guiInfo.Tracks = (int)listMgr(PLAYLIST_ITEM_GET_POS, 0);
+        guiInfo.Track  = 1;
+        filename       = NULL; // don't start playing
     }
 
     if (subdata)
@@ -246,13 +251,13 @@ void guiInit(void)
 
     mplayerLoadFont();
 
-    initialized = 1;
+    initialized = True;
 }
 
 void guiDone(void)
 {
     if (initialized) {
-        uiMainRender = 0;
+        uiMainRender = False;
 
         if (gui_save_pos) {
             gui_main_pos_x  = guiApp.mainWindow.X;
@@ -325,7 +330,7 @@ int gui(int what, void *data)
 #ifdef CONFIG_DVDREAD
     dvd_priv_t *dvd;
 #endif
-    plItem *next;
+    plItem *next = NULL;
     int msg, state;
 
     if (guiInfo.mpcontext)
@@ -410,6 +415,7 @@ int gui(int what, void *data)
         switch (guiInfo.StreamType) {
         case STREAMTYPE_FILE:
         case STREAMTYPE_STREAM:
+            filename = guiInfo.Filename;
             break;
 
         case STREAMTYPE_CDDA:
@@ -417,7 +423,7 @@ int gui(int what, void *data)
             char tmp[512];
 
             sprintf(tmp, "cdda://%d", guiInfo.Track);
-            uiSetFileName(NULL, tmp, SAME_STREAMTYPE);
+            uiSetFile(NULL, tmp, SAME_STREAMTYPE);
         }
         break;
 
@@ -426,7 +432,7 @@ int gui(int what, void *data)
             char tmp[512];
 
             sprintf(tmp, "vcd://%d", guiInfo.Track);
-            uiSetFileName(NULL, tmp, SAME_STREAMTYPE);
+            uiSetFile(NULL, tmp, SAME_STREAMTYPE);
         }
         break;
 
@@ -435,7 +441,7 @@ int gui(int what, void *data)
             char tmp[512];
 
             sprintf(tmp, "dvd://%d", guiInfo.Track);
-            uiSetFileName(NULL, tmp, SAME_STREAMTYPE);
+            uiSetFile(NULL, tmp, SAME_STREAMTYPE);
         }
 #ifdef CONFIG_DVDREAD
             dvd_chapter = guiInfo.Chapter;
@@ -565,7 +571,7 @@ int gui(int what, void *data)
         if (gtkSubDumpSrt)
             stream_dump_type = 6;
 
-        gtkSubDumpMPSub = gtkSubDumpSrt = 0;
+        gtkSubDumpMPSub = gtkSubDumpSrt = False;
         mplayerLoadFont();
 
         /* misc */
@@ -603,6 +609,7 @@ int gui(int what, void *data)
         switch (guiInfo.StreamType) {
         case STREAMTYPE_FILE:
         case STREAMTYPE_STREAM:
+            guiInfo.Tracks = (int)listMgr(PLAYLIST_ITEM_GET_POS, 0);
             break;
 
         case STREAMTYPE_CDDA:
@@ -650,6 +657,11 @@ int gui(int what, void *data)
 
         guiInfo.sh_video = data;
 
+        nfree(guiInfo.CodecName);
+
+        if (guiInfo.sh_video)
+            guiInfo.CodecName = strdup(guiInfo.sh_video->codec->name);
+
         state = (guiInfo.StreamType == STREAMTYPE_STREAM ? btnDisabled : btnReleased);
         btnSet(evForward10sec, state);
         btnSet(evBackward10sec, state);
@@ -670,8 +682,11 @@ int gui(int what, void *data)
 
         guiInfo.AudioChannels = data ? ((sh_audio_t *)data)->channels : 0;
 
-        if (data && !guiInfo.sh_video)
+        if (data && !guiInfo.sh_video) {
             guiInfo.VideoWindow = False;
+            guiInfo.VideoWidth  = 0;
+            guiInfo.VideoHeight = 0;
+        }
 
         gui(GUI_SET_MIXER, 0);
 
@@ -765,8 +780,8 @@ int gui(int what, void *data)
 
         uiEventHandling(ivRedraw, 1);
 
-        if (!uiProcessNextInPlaylist && guiInfo.Playing) {
-            uiProcessNextInPlaylist = 1;
+        if (!guiInfo.PlaylistNext && guiInfo.Playing) {
+            guiInfo.PlaylistNext = True;
             break;
         }
 
@@ -777,12 +792,13 @@ int gui(int what, void *data)
                 break;
         }
 
-        next = listMgr(PLAYLIST_ITEM_GET_NEXT, 0);
+        if (guiInfo.Playing)
+            next = listMgr(PLAYLIST_ITEM_GET_NEXT, 0);
 
         if (guiInfo.Playing && next) {
-            uiSetFileName(next->path, next->name, STREAMTYPE_FILE);
+            uiSetFile(next->path, next->name, STREAMTYPE_FILE);
             guiInfo.NewPlay = GUI_FILE_NEW;
-            guiInfo.Track++;
+            guiInfo.Track   = (int)listMgr(PLAYLIST_ITEM_GET_POS, next);
         } else {
             if (guiInfo.NewPlay == GUI_FILE_NEW)
                 break;
@@ -796,25 +812,17 @@ int gui(int what, void *data)
             if (guiInfo.Angle)
                 guiInfo.Angle = 1;
 
-            if (isPlaylistStreamtype && !listMgr(PLAYLIST_ITEM_GET_CURR, 0)) {
-                guiInfo.Track         = 0;
-                guiInfo.Chapter       = 0;
-                guiInfo.Angle         = 0;
-                guiInfo.RunningTime   = 0;
-                guiInfo.AudioChannels = 0;
-                uiSetFileName(NULL, NULL, STREAMTYPE_DUMMY);
-            }
+            if (isPlaylistStreamtype && !listMgr(PLAYLIST_ITEM_GET_CURR, 0))
+                uiUnsetFile();
 
             guiInfo.ElapsedTime = 0;
             guiInfo.Position    = 0;
 
             if (gtkShowVideoWindow) {
                 guiInfo.VideoWindow = True;
-                guiInfo.VideoWidth  = guiApp.video.width;
-                guiInfo.VideoHeight = guiApp.video.height;
 
                 if (!guiApp.videoWindow.isFullScreen) {
-                    wsResizeWindow(&guiApp.videoWindow, guiInfo.VideoWidth, guiInfo.VideoHeight);
+                    wsResizeWindow(&guiApp.videoWindow, guiApp.video.width, guiApp.video.height);
                     wsMoveWindow(&guiApp.videoWindow, False, guiApp.video.x, guiApp.video.y);
                 }
 
@@ -832,7 +840,7 @@ int gui(int what, void *data)
             gui(GUI_SET_STATE, (void *)GUI_STOP);
 
             wsHandleEvents();
-            uiVideoRender = 1;
+            uiVideoRender = True;
             wsSetBackgroundRGB(&guiApp.videoWindow, guiApp.video.R, guiApp.video.G, guiApp.video.B);
             wsClearWindow(&guiApp.videoWindow);
             wsPostRedisplay(&guiApp.videoWindow);
@@ -852,7 +860,7 @@ int gui(int what, void *data)
 int guiPlaylistInitialize(play_tree_t *my_playtree, m_config_t *config, int enqueue)
 {
     play_tree_iter_t *my_pt_iter = NULL;
-    int result = 0;
+    int added = False;
 
     if (!enqueue)
         listMgr(PLAYLIST_DELETE, 0);             // delete playlist before "appending"
@@ -861,19 +869,19 @@ int guiPlaylistInitialize(play_tree_t *my_playtree, m_config_t *config, int enqu
         while ((filename = pt_iter_get_next_file(my_pt_iter)) != NULL)
             /* add it to end of list */
             if (add_to_gui_playlist(filename, PLAYLIST_ITEM_APPEND))
-                result = 1;
+                added = True;
     }
 
     uiCurr();   // update filename
-    uiProcessNextInPlaylist = 1;
+    guiInfo.PlaylistNext = True;
 
     if (enqueue)
         filename = NULL;            // don't start playing
 
-    if (result)
+    if (added)
         guiInfo.Track = 1;
 
-    return result;
+    return added;
 }
 
 // This function imports and inserts an playtree, that is created "on the fly",
@@ -884,7 +892,7 @@ int guiPlaylistInitialize(play_tree_t *my_playtree, m_config_t *config, int enqu
 int guiPlaylistAdd(play_tree_t *my_playtree, m_config_t *config)
 {
     play_tree_iter_t *my_pt_iter = NULL;
-    int result = 0;
+    int added = False;
     plItem *save;
 
     save = (plItem *)listMgr(PLAYLIST_ITEM_GET_CURR, 0);    // save current item
@@ -893,7 +901,7 @@ int guiPlaylistAdd(play_tree_t *my_playtree, m_config_t *config)
         while ((filename = pt_iter_get_next_file(my_pt_iter)) != NULL)
             /* insert it into the list and set plCurrent=new item */
             if (add_to_gui_playlist(filename, PLAYLIST_ITEM_INSERT))
-                result = 1;
+                added = True;
 
         pt_iter_destroy(&my_pt_iter);
     }
@@ -903,12 +911,12 @@ int guiPlaylistAdd(play_tree_t *my_playtree, m_config_t *config)
     else
         listMgr(PLAYLIST_ITEM_SET_CURR, listMgr(PLAYLIST_GET, 0));    // go to head, if plList was empty before
 
-    if (save && result)
+    if (save && added)
         listMgr(PLAYLIST_ITEM_DEL_CURR, 0);
 
     uiCurr();   // update filename
 
-    return result;
+    return added;
 }
 
 /* GUI -> MPlayer */
@@ -1089,7 +1097,7 @@ void mplayerLoadFont(void)
 
 void mplayerLoadSubtitle(const char *name)
 {
-    if (guiInfo.Playing == 0)
+    if (guiInfo.Playing == GUI_STOP)
         return;
 
     if (subdata) {

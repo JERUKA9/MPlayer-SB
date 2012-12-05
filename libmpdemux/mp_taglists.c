@@ -29,6 +29,9 @@
 static const struct AVCodecTag mp_wav_tags[] = {
     { CODEC_ID_ADPCM_4XM,         MKTAG('4', 'X', 'M', 'A')},
     { CODEC_ID_ADPCM_ADX,         MKTAG('S', 'a', 'd', 'x')},
+#if LIBAVUTIL_VERSION_MICRO >= 100
+    { AV_CODEC_ID_ADPCM_AFC,      MKTAG('A', 'F', 'C', ' ')},
+#endif
     { CODEC_ID_ADPCM_IMA_APC,     MKTAG('A', 'P', 'C', 'A')},
     { CODEC_ID_ADPCM_EA,          MKTAG('A', 'D', 'E', 'A')},
     { CODEC_ID_ADPCM_EA_R1,       MKTAG('E', 'A', 'R', '1')},
@@ -132,6 +135,7 @@ static const struct AVCodecTag mp_bmp_tags[] = {
     { CODEC_ID_AVS,               MKTAG('A', 'V', 'S', ' ')},
     { CODEC_ID_BETHSOFTVID,       MKTAG('B', 'E', 'T', 'H')},
     { CODEC_ID_BFI,               MKTAG('B', 'F', 'I', 'V')},
+    { CODEC_ID_BMP,               MKTAG('b', 'm', 'p', ' ')},
     { CODEC_ID_BMV_VIDEO,         MKTAG('B', 'M', 'V', 'V')},
     { CODEC_ID_C93,               MKTAG('C', '9', '3', 'V')},
     { CODEC_ID_CDGRAPHICS,        MKTAG('C', 'D', 'G', 'R')},

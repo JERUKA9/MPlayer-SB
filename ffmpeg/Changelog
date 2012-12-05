@@ -24,13 +24,16 @@ version <next>:
 - AVR demuxer
 - geq filter ported from libmpcodecs
 - remove ffserver daemon mode
-- AST demuxer
+- AST muxer/demuxer
 - new expansion syntax for drawtext
 - BRender PIX image decoder
 - ffprobe -show_entries option
 - ffprobe -sections option
 - ADPCM IMA Dialogic decoder
 - BRSTM demuxer
+- animated GIF decoder and demuxer
+- PVF demuxer
+- subtitles filter
 
 
 version 1.0:
